@@ -2,12 +2,15 @@ export type SurvivorClassId =
   | 'INTERCEPTOR'
   | 'TOW_MECH'
   | 'SIGNAL_DRONE'
-  | 'EMP_SWEEPER';
+  | 'EMP_SWEEPER'
+  | 'CYBER_MEDIC'
+  | 'RAIL_ENFORCER';
 
 export type SurvivorStageId =
   | 'COMMUTE_GRID'
   | 'BRAESS_MAZE'
-  | 'MEGACITY_HELL';
+  | 'MEGACITY_HELL'
+  | 'SEOUL_BELTWAY';
 
 export type WeaponId =
   | 'GREEN_WAVE_PULSE'
@@ -17,7 +20,9 @@ export type WeaponId =
   | 'SPEED_CAMERA_LASER'
   | 'DETOUR_MISSILE'
   | 'HIPASS_BOOMERANG'
-  | 'SIGNAL_TURRET';
+  | 'SIGNAL_TURRET'
+  | 'CHAIN_SIGNAL_ARC'
+  | 'RAILGUN_BEAM';
 
 export type PassiveId =
   | 'OVERCLOCK_COIL'
@@ -34,6 +39,7 @@ export type EnemyType =
   | 'DOUBLE_PARK_VAN'
   | 'ROGUE_RACER'
   | 'OVERLOAD_TRUCK'
+  | 'HAZMAT_TANKER'
   | 'BOSS_JUGGERNAUT'
   | 'BOSS_BUS_TITAN'
   | 'BOSS_BRAESS';
@@ -76,6 +82,7 @@ export interface SurvivorStageDef {
 export interface WeaponDef {
   id: WeaponId;
   name: string;
+  iconCode: string;
   evolvedName: string;
   evolvedDescription: string;
   synergyPassive: PassiveId;
@@ -93,6 +100,7 @@ export interface WeaponDef {
 export interface PassiveDef {
   id: PassiveId;
   name: string;
+  iconCode: string;
   description: string;
   color: string;
   maxLevel: number;
@@ -111,7 +119,13 @@ export interface ActiveWeaponInstance {
 
 export interface UpgradeChoice {
   key: string;
-  kind: 'WEAPON_NEW' | 'WEAPON_UPGRADE' | 'WEAPON_EVOLVE' | 'PASSIVE_NEW' | 'PASSIVE_UPGRADE' | 'EMERGENCY_REPAIR';
+  kind:
+    | 'WEAPON_NEW'
+    | 'WEAPON_UPGRADE'
+    | 'WEAPON_EVOLVE'
+    | 'PASSIVE_NEW'
+    | 'PASSIVE_UPGRADE'
+    | 'EMERGENCY_REPAIR';
   weaponId?: WeaponId;
   passiveId?: PassiveId;
   title: string;
@@ -143,6 +157,7 @@ export interface SurvivorPlayer {
   invulnerableTimer: number;
   sirenDashCooldown: number;
   sirenDashActiveTimer: number;
+  cityOverrideCooldown: number;
   onRoadSpeedBoost: boolean;
   weapons: ActiveWeaponInstance[];
   passives: Partial<Record<PassiveId, number>>;
@@ -278,6 +293,25 @@ export interface ParticleEffect {
   maxTimer: number;
 }
 
+export interface TireTrackMark {
+  x: number;
+  y: number;
+  angle: number;
+  color: string;
+  timer: number;
+}
+
+export interface CityBuildingBlock {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  heightFactor: number;
+  accentColor: string;
+  label?: string;
+  hasHelipad?: boolean;
+}
+
 export interface IntersectionMission {
   nodeId: string;
   nodeName: string;
@@ -301,19 +335,26 @@ export interface AmbientRoadCar {
 
 export interface MetaUpgradesState {
   credits: number;
-  damageLevel: number; // +8% per level (max 5)
-  hpLevel: number; // +15 HP per level (max 5)
-  speedLevel: number; // +5% per level (max 5)
-  cooldownLevel: number; // -4% per level (max 5)
-  xpGainLevel: number; // +10% per level (max 5)
-  magnetLevel: number; // +15% per level (max 5)
+  damageLevel: number; // +10% per level (max 5)
+  hpLevel: number; // +20 HP per level (max 5)
+  speedLevel: number; // +6% per level (max 5)
+  cooldownLevel: number; // -5% per level (max 5)
+  xpGainLevel: number; // +12% per level (max 5)
+  magnetLevel: number; // +20% per level (max 5)
   bestTimeSeconds: number;
   totalVehiclesCleared: number;
   totalRuns: number;
 }
 
 export interface SurvivorGameState {
-  status: 'LOBBY' | 'PLAYING' | 'PAUSED' | 'LEVEL_UP' | 'CHEST_OPEN' | 'VICTORY' | 'GAME_OVER';
+  status:
+    | 'LOBBY'
+    | 'PLAYING'
+    | 'PAUSED'
+    | 'LEVEL_UP'
+    | 'CHEST_OPEN'
+    | 'VICTORY'
+    | 'GAME_OVER';
   stageId: SurvivorStageId;
   elapsedSeconds: number;
   clearTimeSeconds: number;
@@ -323,6 +364,13 @@ export interface SurvivorGameState {
   gridlockGauge: number; // 0 .. 100 (%)
   gridlockOverloadActive: boolean;
   smoothFlowBuffActive: boolean;
+  comboCount: number;
+  comboTimer: number;
+  maxCombo: number;
+  feverGauge: number; // 0 .. 100
+  feverActiveTimer: number; // > 0 when Fever Time is active
+  screenShakeTimer: number;
+  screenShakeIntensity: number;
   missionsCompleted: number;
   activeBossAlert: string | null;
   activeBossAlertTimer: number;
@@ -338,6 +386,7 @@ export interface SurvivorGameState {
   pickups: PickupEntity[];
   floatingTexts: FloatingText[];
   particles: ParticleEffect[];
+  tireTracks: TireTrackMark[];
   activeMission: IntersectionMission | null;
   pendingLevelChoices: UpgradeChoice[];
   pendingChestRewards: UpgradeChoice[];

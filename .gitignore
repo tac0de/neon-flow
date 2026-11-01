@@ -4,4 +4,4 @@ dist/
 .DS_Store
 .env
 .env.*
-neon-flow-demo.mp4
+*.mp4

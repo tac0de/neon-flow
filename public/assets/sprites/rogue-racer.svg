@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 68" width="110" height="68">
+    <!-- Afterburner flame -->
+    <polygon points="2,24 14,20 14,28" fill="#fbbf24"/>
+    <polygon points="2,44 14,40 14,48" fill="#fbbf24"/>
+    <!-- Widebody Aero Chassis -->
+    <polygon points="14,14 82,10 106,24 106,44 82,58 14,54" fill="#e11d48" stroke="#fda4af" stroke-width="2"/>
+    <!-- Rear Carbon GT Spoiler -->
+    <rect x="10" y="12" width="8" height="44" rx="2" fill="#090d16" stroke="#f43f5e" stroke-width="1.5"/>
+    <!-- Cockpit Tear-drop -->
+    <polygon points="36,22 72,18 84,26 84,42 72,50 36,46" fill="#090d16" stroke="#fb7185" stroke-width="1.5"/>
+    <!-- Racing Stripes -->
+    <line x1="20" y1="34" x2="104" y2="34" stroke="#fde047" stroke-width="2.5"/>
+  </svg>

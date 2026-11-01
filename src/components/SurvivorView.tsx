@@ -5,8 +5,6 @@ import {
   SurvivorClassId,
   SurvivorGameState,
   SurvivorStageId,
-  UpgradeChoice,
-  WeaponId,
 } from '../types/survivor';
 import {
   loadMetaUpgrades,
@@ -19,6 +17,7 @@ import {
 } from '../survivor/survivorData';
 import { TrafficSurvivorEngine } from '../survivor/survivorEngine';
 import { soundEngine } from '../survivor/soundEngine';
+import { spriteCache } from '../survivor/spriteAssets';
 import { TrafficSimulator } from '../engine/simulator';
 import {
   Bot,
@@ -28,6 +27,7 @@ import {
   Gamepad2,
   Pause,
   Play,
+  Radio,
   RefreshCw,
   RotateCcw,
   Shield,
@@ -62,6 +62,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
     null as unknown as TrafficSurvivorEngine
   );
   if (!engineRef.current) {
+    spriteCache.ensureLoaded();
     engineRef.current = new TrafficSurvivorEngine(
       'INTERCEPTOR',
       'COMMUTE_GRID',
@@ -81,7 +82,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Input state refs (WASD / Arrow keys + Mouse / Touch virtual joystick)
   const keysRef = useRef<Set<string>>(new Set());
   const pointerDragRef = useRef<{
     active: boolean;
@@ -97,7 +97,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
     currY: 0,
   });
 
-  // Start a fresh run
   const startNewRun = useCallback(
     (
       classId: SurvivorClassId = selectedClass,
@@ -111,6 +110,28 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
     },
     [selectedClass, selectedStage]
   );
+
+  // Expose window debug/showcase hook for automated video recording & testing
+  useEffect(() => {
+    const win = window as unknown as {
+      __NEON_SURVIVOR__?: {
+        getEngine: () => TrafficSurvivorEngine;
+        setAutoPilot: (v: boolean) => void;
+        openLobby: (v: boolean) => void;
+        startRun: (c: SurvivorClassId, s: SurvivorStageId) => void;
+      };
+    };
+    win.__NEON_SURVIVOR__ = {
+      getEngine: () => engineRef.current,
+      setAutoPilot: (v: boolean) => setAutoPilot(v),
+      openLobby: (v: boolean) => setIsLobbyOpen(v),
+      startRun: (c: SurvivorClassId, s: SurvivorStageId) => {
+        setSelectedClass(c);
+        setSelectedStage(s);
+        startNewRun(c, s);
+      },
+    };
+  }, [startNewRun]);
 
   // Persist credits & records when Victory or Game Over occurs
   const prevStatusRef = useRef<SurvivorGameState['status']>('PLAYING');
@@ -137,9 +158,14 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
       });
     }
     prevStatusRef.current = curStatus;
-  }, [uiState.status, uiState.player.creditsEarned, uiState.elapsedSeconds, uiState.player.kills]);
+  }, [
+    uiState.status,
+    uiState.player.creditsEarned,
+    uiState.elapsedSeconds,
+    uiState.player.kills,
+  ]);
 
-  // Keyboard listeners (WASD / Arrows / Space / 1,2,3 for Level-up cards / R for Reroll)
+  // Keyboard listeners
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const code = e.code;
@@ -151,6 +177,9 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
       if (code === 'Space' && st.status === 'PLAYING' && !isLobbyOpen) {
         e.preventDefault();
         eng.triggerSirenDash();
+      } else if (code === 'KeyQ' && st.status === 'PLAYING' && !isLobbyOpen) {
+        e.preventDefault();
+        eng.triggerCitywideOverride();
       } else if (st.status === 'LEVEL_UP') {
         if (code === 'Digit1' && st.pendingLevelChoices[0]) {
           eng.applyUpgradeChoice(st.pendingLevelChoices[0]);
@@ -202,7 +231,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
       const st = eng.getState();
 
       if (st.status === 'PLAYING' && !isLobbyOpen) {
-        // Compute player input vector
         let moveX = 0;
         let moveY = 0;
         const keys = keysRef.current;
@@ -212,11 +240,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
         if (keys.has('KeyA') || keys.has('ArrowLeft')) moveX -= 1;
         if (keys.has('KeyD') || keys.has('ArrowRight')) moveX += 1;
 
-        if (
-          moveX === 0 &&
-          moveY === 0 &&
-          pointerDragRef.current.active
-        ) {
+        if (moveX === 0 && moveY === 0 && pointerDragRef.current.active) {
           const dx =
             pointerDragRef.current.currX - pointerDragRef.current.originX;
           const dy =
@@ -237,7 +261,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
         eng.update(dt, { moveX, moveY });
       }
 
-      // Render Canvas
       renderSurvivorCanvas(
         canvasRef.current,
         containerRef.current,
@@ -245,7 +268,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
         pointerDragRef.current
       );
 
-      // Sync React HUD state at ~15 Hz or immediately on modal transitions
       hudSyncTimer += dt;
       if (hudSyncTimer >= 0.065 || st.status !== 'PLAYING') {
         hudSyncTimer = 0;
@@ -259,7 +281,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [autoPilot, isLobbyOpen]);
 
-  // Pointer / Touch handlers for virtual joystick
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -285,7 +306,6 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
     pointerDragRef.current.active = false;
   };
 
-  // Meta Upgrade Purchase
   const handleBuyMetaUpgrade = (
     key: (typeof META_UPGRADE_ITEMS)[number]['key'],
     baseCost: number,
@@ -307,28 +327,50 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
   };
 
   const p = uiState.player;
-  const xpPercent = Math.min(100, Math.round((p.xp / Math.max(1, p.xpToNext)) * 100));
-  const hpPercent = Math.min(100, Math.round((p.hp / Math.max(1, p.maxHp)) * 100));
+  const activeClassDef = SURVIVOR_CLASSES[p.classId];
+  const xpPercent = Math.min(
+    100,
+    Math.round((p.xp / Math.max(1, p.xpToNext)) * 100)
+  );
+  const hpPercent = Math.min(
+    100,
+    Math.round((p.hp / Math.max(1, p.maxHp)) * 100)
+  );
   const gridlockPercent = Math.min(100, Math.round(uiState.gridlockGauge));
+  const feverPercent =
+    uiState.feverActiveTimer > 0
+      ? Math.round((uiState.feverActiveTimer / 8.0) * 100)
+      : Math.round(uiState.feverGauge);
+
+  const activeBoss = uiState.enemies.find((e) => e.isBoss);
 
   return (
     <div className="survivor-shell">
-      {/* Top Survivor HUD Bar */}
+      {/* ==================== TACTICAL COCKPIT TOPBAR ==================== */}
       <header className="survivor-topbar">
         <div className="survivor-top-row">
-          <div className="brand-block">
-            <div className="neon-logo-mark survivor-logo">NF</div>
-            <div>
-              <div className="brand-title">
-                NEON FLOW : GRIDLOCK SURVIVORS
-              </div>
-              <div className="brand-sub">
-                도시 교통 체증 뱀서류 액션 · 그린웨이브 관제 서바이버
+          {/* Brand + Active Vehicle Cockpit Avatar */}
+          <div className="cockpit-pilot-card">
+            <div className="pilot-sprite-frame">
+              <img
+                src={spriteCache.getClassDataUri(p.classId)}
+                alt={activeClassDef.name}
+                className="pilot-sprite-img"
+              />
+              <span className="pilot-lv-badge mono">Lv.{p.level}</span>
+            </div>
+            <div className="pilot-meta">
+              <div className="brand-title">NEON FLOW : GRIDLOCK SURVIVORS</div>
+              <div className="pilot-class-name" style={{ color: activeClassDef.color }}>
+                {activeClassDef.name} ·{' '}
+                <span className="pilot-stage-sub">
+                  {SURVIVOR_STAGES[uiState.stageId].name}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Survival Clock & Wave Banner */}
+          {/* Digital Rush-Hour Clock & Wave Phase */}
           <div className="survivor-clock-box">
             <div className="clock-time mono">
               {formatTime(uiState.elapsedSeconds)}
@@ -339,12 +381,12 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
             <div className="clock-wave-pill">{uiState.waveLabel}</div>
           </div>
 
-          {/* Core Gauges: HP & City Gridlock */}
+          {/* Core Gauges: HP, City Gridlock, Fever/Combo */}
           <div className="survivor-gauges-group">
             <div className="s-gauge-card">
               <div className="s-gauge-top">
                 <span>
-                  <Shield size={12} /> 순찰차 내구도 (Lv.{p.level})
+                  <Shield size={12} /> 장갑 내구도 (HP)
                 </span>
                 <strong className="mono">
                   {Math.ceil(p.hp)} / {p.maxHp}
@@ -361,7 +403,16 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
             <div className="s-gauge-card">
               <div className="s-gauge-top">
                 <span>
-                  <Flame size={12} /> 도심 정체도 (Gridlock)
+                  <span
+                    className={`traffic-led ${
+                      gridlockPercent >= 80
+                        ? 'red'
+                        : gridlockPercent <= 35
+                        ? 'green'
+                        : 'amber'
+                    }`}
+                  />
+                  도심 마비도
                 </span>
                 <strong
                   className={`mono ${
@@ -374,7 +425,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                 >
                   {gridlockPercent}%{' '}
                   {uiState.smoothFlowBuffActive
-                    ? '(쾌적 +20% XP)'
+                    ? '(쾌적 +20%)'
                     : uiState.gridlockOverloadActive
                     ? '(과부하!)'
                     : ''}
@@ -393,19 +444,45 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                 />
               </div>
             </div>
+
+            <div
+              className={`s-gauge-card ${
+                uiState.feverActiveTimer > 0 ? 'fever-active-card' : ''
+              }`}
+            >
+              <div className="s-gauge-top">
+                <span>
+                  <Flame size={12} />{' '}
+                  {uiState.feverActiveTimer > 0
+                    ? '🔥 FEVER OVERDRIVE!'
+                    : '피버 게이지'}
+                </span>
+                <strong className="mono text-amber">
+                  {uiState.comboCount > 1
+                    ? `${uiState.comboCount} COMBO!`
+                    : `${feverPercent}%`}
+                </strong>
+              </div>
+              <div className="s-bar-track">
+                <div
+                  className={`s-bar-fill ${
+                    uiState.feverActiveTimer > 0 ? 'fever-rainbow' : 'fever-charge'
+                  }`}
+                  style={{ width: `${feverPercent}%` }}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Score & Credits */}
           <div className="survivor-stats-pills">
             <div className="s-stat-pill">
-              <span className="lbl">해소 차량</span>
+              <span className="lbl">단속·해소 차량</span>
               <strong className="mono cyan">{p.kills}대</strong>
             </div>
             <div className="s-stat-pill">
               <span className="lbl">과태료 크레딧</span>
-              <strong className="mono amber">
-                +{p.creditsEarned}G
-              </strong>
+              <strong className="mono amber">+{p.creditsEarned}G</strong>
             </div>
           </div>
 
@@ -429,12 +506,28 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
 
             <button
               type="button"
+              className={`s-ctrl-btn override-btn ${
+                p.cityOverrideCooldown <= 0 ? 'ready' : 'cooling'
+              }`}
+              onClick={() => engineRef.current.triggerCitywideOverride()}
+              title="전 도시 신호 초록불 동기화 EMP (단축키: Q)"
+            >
+              <Radio size={13} />
+              <span>
+                {p.cityOverrideCooldown <= 0
+                  ? '전도시 동기화 [Q]'
+                  : `${p.cityOverrideCooldown.toFixed(1)}s`}
+              </span>
+            </button>
+
+            <button
+              type="button"
               className={`s-ctrl-btn ${autoPilot ? 'active-ai' : ''}`}
               onClick={() => setAutoPilot((a) => !a)}
               title="AI 자율주행 파일럿 켜기/끄기"
             >
               <Bot size={14} />
-              <span>{autoPilot ? 'AI 자율주행 ON' : 'AI 자율주행'}</span>
+              <span>{autoPilot ? 'AI 파일럿 ON' : 'AI 파일럿'}</span>
             </button>
 
             <button
@@ -478,7 +571,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
               onClick={() => setIsLobbyOpen(true)}
             >
               <Gamepad2 size={13} />
-              <span>차고·스테이지</span>
+              <span>본부 차고</span>
             </button>
 
             <button
@@ -488,7 +581,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
               title="기존 도시 교통 시뮬레이터 & 신호 최적화 실험실로 전환"
             >
               <FlaskConical size={13} />
-              <span>교통 실험실 모드</span>
+              <span>교통 실험실</span>
             </button>
           </div>
         </div>
@@ -497,12 +590,13 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
         <div className="xp-strip-wrap">
           <div className="xp-strip-fill" style={{ width: `${xpPercent}%` }} />
           <div className="xp-strip-label mono">
-            LEVEL {p.level} · 통행 데이터 경험치 {p.xp} / {p.xpToNext} ({xpPercent}%)
+            LEVEL {p.level} · 통행 데이터 경험치 {p.xp} / {p.xpToNext} (
+            {xpPercent}%)
           </div>
         </div>
       </header>
 
-      {/* Main Canvas Stage */}
+      {/* ==================== MAIN CANVAS STAGE ==================== */}
       <div className="survivor-stage-wrap" ref={containerRef}>
         <canvas
           ref={canvasRef}
@@ -513,8 +607,44 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
           onPointerCancel={handlePointerUp}
         />
 
-        {/* Boss Warning Banner */}
-        {uiState.activeBossAlert && (
+        {/* Top-Center Active Boss Health Bar HUD */}
+        {activeBoss && (
+          <div className="boss-hud-bar-card">
+            <div className="boss-hud-top">
+              <div className="boss-hud-identity">
+                <img
+                  src={spriteCache.getEnemyDataUri(activeBoss.type)}
+                  alt={activeBoss.name}
+                  className="boss-hud-sprite"
+                />
+                <div>
+                  <div className="boss-hud-name">{activeBoss.name}</div>
+                  <div className="boss-hud-sub">
+                    특수 단속 대상 · 처치 시 과태료 보물상자 드롭
+                  </div>
+                </div>
+              </div>
+              <div className="boss-hud-hp mono">
+                {Math.ceil(activeBoss.hp).toLocaleString()} /{' '}
+                {activeBoss.maxHp.toLocaleString()} HP
+              </div>
+            </div>
+            <div className="boss-hud-track">
+              <div
+                className="boss-hud-fill"
+                style={{
+                  width: `${Math.max(
+                    0,
+                    Math.min(100, (activeBoss.hp / activeBoss.maxHp) * 100)
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Boss Spawn Warning Toast */}
+        {uiState.activeBossAlert && !activeBoss && (
           <div className="boss-alert-banner">
             <Sparkles size={16} />
             <span>{uiState.activeBossAlert}</span>
@@ -523,22 +653,38 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
 
         {/* Active Intersection Signal Mission HUD Callout */}
         {uiState.activeMission && (
-          <div className="mission-hud-callout">
+          <div
+            className="mission-hud-callout"
+            style={{ top: activeBoss ? 86 : 16 }}
+          >
             <div className="mission-hud-title">
-              🚨 교차로 신호 마비: <strong>{uiState.activeMission.nodeName}</strong>
+              🚨 교차로 신호 마비:{' '}
+              <strong>{uiState.activeMission.nodeName}</strong>
             </div>
             <div className="mission-hud-sub">
-              원 안으로 진입해 신호를 최적화하세요! (해킹 진행도:{' '}
+              교차로 원 안으로 진입해 신호를 해킹하세요! (진행도:{' '}
               {Math.round(uiState.activeMission.progress * 100)}% · 남은 시간:{' '}
               {Math.ceil(uiState.activeMission.timeRemaining)}s)
             </div>
           </div>
         )}
 
-        {/* Bottom-Left Weapon & Passive Inventory Dock */}
+        {/* Floating Combo & Fever Badge on Right below Minimap */}
+        {uiState.comboCount >= 3 && (
+          <div className="combo-floating-badge">
+            <div className="combo-num mono">{uiState.comboCount} HIT</div>
+            <div className="combo-lbl">
+              {uiState.feverActiveTimer > 0
+                ? '🔥 GREEN-WAVE FEVER!'
+                : '연속 정체 해소 콤보'}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom-Left Tactical Equipment Deck */}
         <div className="survivor-inventory-dock">
           <div className="inv-row">
-            <span className="inv-row-tag">무기 슬롯</span>
+            <span className="inv-row-tag">장착 무기</span>
             <div className="inv-slots">
               {Array.from({ length: 6 }).map((_, idx) => {
                 const w = p.weapons[idx];
@@ -557,11 +703,14 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                     style={{
                       borderColor: w.evolved ? def.evolvedColor : def.color,
                     }}
-                    title={`${w.evolved ? def.evolvedName : def.name} (피해량: ${w.totalDamageDealt.toLocaleString()})`}
+                    title={`${w.evolved ? def.evolvedName : def.name} (누적 피해: ${w.totalDamageDealt.toLocaleString()})`}
                   >
+                    <div className="inv-slot-icon">{def.iconCode}</div>
                     <div
                       className="inv-slot-name"
-                      style={{ color: w.evolved ? def.evolvedColor : def.color }}
+                      style={{
+                        color: w.evolved ? def.evolvedColor : def.color,
+                      }}
                     >
                       {w.evolved ? '★진화' : def.name.slice(0, 4)}
                     </div>
@@ -599,6 +748,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                     style={{ borderColor: def.color }}
                     title={`${def.name}: ${def.description}`}
                   >
+                    <div className="inv-slot-icon">{def.iconCode}</div>
                     <div
                       className="inv-slot-name"
                       style={{ color: def.color }}
@@ -613,14 +763,16 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
           </div>
 
           <div className="controls-hint-bar">
-            <span>이동: WASD / 방향키 / 마우스 드래그</span>
+            <span>이동: WASD / 방향키 / 드래그</span>
             <span>·</span>
-            <span>긴급 돌파: Space</span>
+            <span>긴급돌파: Space</span>
             <span>·</span>
-            <span>
+            <span>도시동기화: Q</span>
+            <span>·</span>
+            <span className={p.onRoadSpeedBoost ? 'text-emerald' : ''}>
               {p.onRoadSpeedBoost
-                ? '⚡ 도로 슬립스트림 가속 적용 중 (+15%)'
-                : '도로 위로 주행 시 가속 보너스'}
+                ? '⚡ 도로 슬립스트림 가속 (+15%)'
+                : '도로 주행 시 가속 보너스'}
             </span>
           </div>
         </div>
@@ -631,11 +783,11 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
             <div className="survivor-modal levelup-modal">
               <div className="s-modal-header">
                 <div className="s-modal-badge">LEVEL UP! → Lv.{p.level}</div>
-                <h2>교통 통제 시스템 업그레이드 선택</h2>
+                <h2>교통 관제 무장 시스템 업그레이드</h2>
                 <p>
-                  레벨 5 무기와 대응하는 시너지 보조 모듈을 보유하면{' '}
+                  Lv.5 무기와 시너지 보조 모듈을 함께 갖추면{' '}
                   <strong className="text-amber">★궁극 진화 무기</strong>가
-                  등장합니다! (숫자키 1·2·3 선택 가능)
+                  해금됩니다! (단축키 1·2·3 선택 / R 리롤)
                 </p>
               </div>
 
@@ -703,15 +855,22 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
         {uiState.status === 'CHEST_OPEN' && !isLobbyOpen && (
           <div className="survivor-modal-backdrop">
             <div className="survivor-modal chest-modal">
-              <div className="s-modal-header">
-                <div className="s-modal-badge amber">
-                  🎁 BOSS ENFORCEMENT JACKPOT!
+              <div className="chest-banner-strip">
+                <img
+                  src="./assets/boss-showcase.jpg"
+                  alt="Boss Enforcement Showcase"
+                  className="chest-banner-img"
+                />
+                <div className="chest-banner-overlay">
+                  <div className="s-modal-badge amber">
+                    🎁 BOSS ENFORCEMENT JACKPOT!
+                  </div>
+                  <h2>보스 차량 단속 완료 · 과태료 보물상자 개방!</h2>
+                  <p>
+                    내구도 +35 회복, 과태료 크레딧 +60G 및 아래 2종의 무장이 즉시
+                    강화되었습니다!
+                  </p>
                 </div>
-                <h2>과태료 보물상자 개방 완료!</h2>
-                <p>
-                  보스 차량 단속 보상으로 내구도 +35 회복, 크레딧 +60G 및 아래
-                  장비가 즉시 강화되었습니다!
-                </p>
               </div>
 
               <div className="chest-rewards-list">
@@ -725,10 +884,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                       className="chest-rw-title"
                       style={{ color: rw.color }}
                     >
-                      {rw.title}{' '}
-                      <span className="mono">
-                        ({rw.subtitle})
-                      </span>
+                      {rw.title} <span className="mono">({rw.subtitle})</span>
                     </div>
                     <div className="chest-rw-desc">{rw.description}</div>
                   </div>
@@ -744,7 +900,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                     setUiState({ ...engineRef.current.getState() });
                   }}
                 >
-                  확인 및 전투 계속하기
+                  확인 및 작전 계속하기
                 </button>
               </div>
             </div>
@@ -756,28 +912,35 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
           !isLobbyOpen && (
             <div className="survivor-modal-backdrop">
               <div className="survivor-modal result-modal">
-                <div className="s-modal-header">
-                  <div
-                    className={`s-modal-badge ${
-                      uiState.status === 'VICTORY' ? 'emerald' : 'rose'
-                    }`}
-                  >
-                    {uiState.status === 'VICTORY'
-                      ? '🏆 RUSH HOUR CLEARED!'
-                      : '🚨 GRIDLOCK OVERWHELMED'}
+                <div className="chest-banner-strip">
+                  <img
+                    src="./assets/hero-banner.jpg"
+                    alt="Neon Flow Key Art"
+                    className="chest-banner-img"
+                  />
+                  <div className="chest-banner-overlay">
+                    <div
+                      className={`s-modal-badge ${
+                        uiState.status === 'VICTORY' ? 'emerald' : 'rose'
+                      }`}
+                    >
+                      {uiState.status === 'VICTORY'
+                        ? '🏆 RUSH HOUR CLEARED!'
+                        : '🚨 GRIDLOCK OVERWHELMED'}
+                    </div>
+                    <h2>
+                      {uiState.status === 'VICTORY'
+                        ? '도심 러시아워 교통 체증 완전 해소!'
+                        : '순찰 기체 파손 · 도심 정체 방어 종료'}
+                    </h2>
+                    <p>
+                      획득한{' '}
+                      <strong className="text-amber">
+                        +{p.creditsEarned}G 과태료 크레딧
+                      </strong>
+                      이 관제 본부 금고에 누적되었습니다.
+                    </p>
                   </div>
-                  <h2>
-                    {uiState.status === 'VICTORY'
-                      ? '도심 러시아워 교통 체증 완전 해소!'
-                      : '순찰 차량 파손 · 도심 정체 방어 종료'}
-                  </h2>
-                  <p>
-                    이번 출동에서 획득한{' '}
-                    <strong className="text-amber">
-                      +{p.creditsEarned}G 과태료 크레딧
-                    </strong>
-                    이 관제 본부 금고에 저장되었습니다.
-                  </p>
                 </div>
 
                 <div className="result-kpi-grid">
@@ -796,40 +959,43 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                     <strong className="mono emerald">{p.kills}대</strong>
                   </div>
                   <div className="res-kpi">
-                    <span>교차로 해킹</span>
+                    <span>최대 콤보 / 해킹</span>
                     <strong className="mono">
-                      {uiState.missionsCompleted}회
+                      {uiState.maxCombo}x / {uiState.missionsCompleted}회
                     </strong>
                   </div>
                   <div className="res-kpi">
                     <span>획득 크레딧</span>
-                    <strong className="mono amber">
-                      +{p.creditsEarned}G
-                    </strong>
+                    <strong className="mono amber">+{p.creditsEarned}G</strong>
                   </div>
                 </div>
 
-                {/* Weapon Damage Report */}
                 <div className="weapon-dmg-report">
-                  <div className="report-title">무기별 누적 단속 피해량 리포트</div>
+                  <div className="report-title">
+                    무기별 누적 단속 피해량 리포트
+                  </div>
                   {p.weapons.map((w) => {
                     const def = WEAPON_DEFS[w.id];
                     const maxDmg = Math.max(
                       1,
                       ...p.weapons.map((item) => item.totalDamageDealt)
                     );
-                    const pct = Math.round(
-                      (w.totalDamageDealt / maxDmg) * 100
-                    );
+                    const pct = Math.round((w.totalDamageDealt / maxDmg) * 100);
                     return (
                       <div key={w.id} className="dmg-row">
                         <div className="dmg-row-top">
-                          <span style={{ color: w.evolved ? def.evolvedColor : def.color }}>
+                          <span
+                            style={{
+                              color: w.evolved ? def.evolvedColor : def.color,
+                            }}
+                          >
+                            {def.iconCode}{' '}
                             {w.evolved ? def.evolvedName : def.name} (
                             {w.evolved ? 'MAX' : `Lv.${w.level}`})
                           </span>
                           <span className="mono">
-                            {w.totalDamageDealt.toLocaleString()} DMG · {w.kills}대 처치
+                            {w.totalDamageDealt.toLocaleString()} DMG ·{' '}
+                            {w.kills}대 처치
                           </span>
                         </div>
                         <div className="dmg-bar-bg">
@@ -873,7 +1039,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                     className="s-reroll-btn"
                     onClick={() => setIsLobbyOpen(true)}
                   >
-                    <Trophy size={15} /> 관제 본부 강화소 & 차량 변경
+                    <Trophy size={15} /> 관제 본부 강화소 & 기체 변경
                   </button>
                 </div>
               </div>
@@ -884,23 +1050,37 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
         {isLobbyOpen && (
           <div className="survivor-modal-backdrop">
             <div className="survivor-modal lobby-modal">
-              <div className="lobby-top-bar">
-                <div>
-                  <div className="s-modal-badge">
-                    NEON FLOW COMMAND GARAGE
+              {/* Hero Key Art Banner Header */}
+              <div className="lobby-hero-banner">
+                <img
+                  src="./assets/hero-banner.jpg"
+                  alt="NEON FLOW: GRIDLOCK SURVIVORS Key Art"
+                  className="lobby-hero-img"
+                />
+                <div className="lobby-hero-overlay">
+                  <div>
+                    <div className="s-modal-badge">
+                      NEON FLOW COMMAND GARAGE
+                    </div>
+                    <h2>교통 통제 기체 선택 & 영구 강화 본부</h2>
+                    <p>
+                      6종의 특수 교통 통제 기체와 4개의 대도시 작전 구역을
+                      선택하고 과태료 크레딧으로 영구 튜닝하세요.
+                    </p>
                   </div>
-                  <h2>교통 통제 기체 선택 & 영구 강화 본부</h2>
-                </div>
-                <div className="lobby-credits-box">
-                  <span>보유 과태료 크레딧</span>
-                  <strong className="mono amber">{meta.credits} G</strong>
+                  <div className="lobby-credits-box">
+                    <span>보유 과태료 크레딧</span>
+                    <strong className="mono amber">{meta.credits} G</strong>
+                  </div>
                 </div>
               </div>
 
               <div className="lobby-columns">
                 {/* Column 1: Class & Stage Selection */}
                 <div className="lobby-col">
-                  <h3 className="lobby-sec-title">1. 출동 기체 (클래스) 선택</h3>
+                  <h3 className="lobby-sec-title">
+                    1. 출동 기체 (클래스 6종) 선택
+                  </h3>
                   <div className="class-select-grid">
                     {(Object.keys(SURVIVOR_CLASSES) as SurvivorClassId[]).map(
                       (cid) => {
@@ -919,17 +1099,26 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                             }}
                             onClick={() => setSelectedClass(cid)}
                           >
-                            <div className="class-card-head">
-                              <strong style={{ color: c.color }}>
-                                {c.name}
-                              </strong>
-                              <span className="mono">HP {c.baseHp}</span>
+                            <div className="class-card-top-row">
+                              <img
+                                src={spriteCache.getClassDataUri(cid)}
+                                alt={c.name}
+                                className="class-card-sprite"
+                              />
+                              <div style={{ flex: 1 }}>
+                                <div className="class-card-head">
+                                  <strong style={{ color: c.color }}>
+                                    {c.name}
+                                  </strong>
+                                  <span className="mono">HP {c.baseHp}</span>
+                                </div>
+                                <div className="class-sub">{c.subtitle}</div>
+                              </div>
                             </div>
-                            <div className="class-sub">{c.subtitle}</div>
                             <p className="class-desc">{c.description}</p>
                             <div className="class-meta-tags">
                               <span className="tag-weapon">
-                                시작 무기: {startW.name}
+                                {startW.iconCode} 시작 무기: {startW.name}
                               </span>
                               <span className="tag-perk">{c.perkLabel}</span>
                             </div>
@@ -940,7 +1129,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                   </div>
 
                   <h3 className="lobby-sec-title" style={{ marginTop: 12 }}>
-                    2. 작전 도시 스테이지 선택
+                    2. 작전 도시 스테이지 (4종) 선택
                   </h3>
                   <div className="stage-select-list">
                     {(Object.keys(SURVIVOR_STAGES) as SurvivorStageId[]).map(
@@ -957,7 +1146,8 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                             <div className="stage-card-top">
                               <strong>{st.name}</strong>
                               <span className="stage-diff mono">
-                                {st.difficultyLabel} ({'★'.repeat(st.difficultyStars)})
+                                {st.difficultyLabel} (
+                                {'★'.repeat(st.difficultyStars)})
                               </span>
                             </div>
                             <div className="stage-desc">{st.description}</div>
@@ -968,7 +1158,7 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                   </div>
                 </div>
 
-                {/* Column 2: Permanent Meta Upgrades */}
+                {/* Column 2: Permanent Meta Upgrades + Boss Preview */}
                 <div className="lobby-col">
                   <h3 className="lobby-sec-title">
                     3. 관제 본부 영구 튜닝 (크레딧 강화)
@@ -1014,6 +1204,19 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                     })}
                   </div>
 
+                  {/* Boss Battle Showcase Card */}
+                  <div className="boss-preview-card">
+                    <img
+                      src="./assets/boss-showcase.jpg"
+                      alt="Boss Showdown Preview"
+                      className="boss-preview-img"
+                    />
+                    <div className="boss-preview-caption">
+                      <strong>🚨 러시아워 보스 경보</strong>: 0:45 메가 트레일러
+                      · 1:40 광역버스 타이탄 · 2:30 브래스의 악령 출현!
+                    </div>
+                  </div>
+
                   <div className="career-summary-box">
                     <span>누적 출동: {meta.totalRuns}회</span>
                     <span>·</span>
@@ -1030,14 +1233,14 @@ export const SurvivorView: React.FC<SurvivorViewProps> = ({
                   className="s-reroll-btn"
                   onClick={() => setIsLobbyOpen(false)}
                 >
-                  현재 게임으로 돌아가기
+                  현재 작전으로 돌아가기
                 </button>
                 <button
                   type="button"
                   className="s-primary-cta"
                   onClick={() => startNewRun(selectedClass, selectedStage)}
                 >
-                  <Play size={15} /> 선택한 기체·스테이지로 새 출동 시작!
+                  <Play size={15} /> 선택한 기체·스테이지로 출동 시작!
                 </button>
               </div>
             </div>
@@ -1097,15 +1300,24 @@ function renderSurvivorCanvas(
     viewH * 0.5,
     Math.max(viewW, viewH) * 0.75
   );
-  bgGrad.addColorStop(0, '#091428');
+  bgGrad.addColorStop(0, '#09152b');
   bgGrad.addColorStop(1, '#040812');
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, viewW, viewH);
 
-  // Camera centered on player
-  const camScale = 1.05;
-  const camX = viewW * 0.5 - p.x * camScale;
-  const camY = viewH * 0.5 - p.y * camScale;
+  // Camera centered on player + optional Screen Shake offset
+  const camScale = 1.06;
+  const shakeX =
+    st.screenShakeTimer > 0
+      ? (Math.random() - 0.5) * st.screenShakeIntensity * 2
+      : 0;
+  const shakeY =
+    st.screenShakeTimer > 0
+      ? (Math.random() - 0.5) * st.screenShakeIntensity * 2
+      : 0;
+
+  const camX = viewW * 0.5 - p.x * camScale + shakeX;
+  const camY = viewH * 0.5 - p.y * camScale + shakeY;
 
   ctx.save();
   ctx.translate(camX, camY);
@@ -1127,14 +1339,53 @@ function renderSurvivorCanvas(
   ctx.stroke();
 
   // Outer perimeter barrier
-  ctx.strokeStyle = 'rgba(244, 63, 94, 0.45)';
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(244, 63, 94, 0.5)';
+  ctx.lineWidth = 3.5;
   ctx.strokeRect(
     bounds.minX,
     bounds.minY,
     bounds.maxX - bounds.minX,
     bounds.maxY - bounds.minY
   );
+
+  // 2.5 Render 3D-style Cyberpunk City Building Blocks
+  for (const b of engine.getCityBlocks()) {
+    // Base footprint
+    ctx.fillStyle = '#070f20';
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.6)';
+    ctx.lineWidth = 1.2;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+    // Extruded roof offset
+    const off = 4 * b.heightFactor;
+    const rx = b.x - off;
+    const ry = b.y - off;
+    ctx.fillStyle = '#0b172e';
+    ctx.strokeStyle = `${b.accentColor}66`;
+    ctx.lineWidth = 1.4;
+    ctx.fillRect(rx, ry, b.w, b.h);
+    ctx.strokeRect(rx, ry, b.w, b.h);
+
+    if (b.hasHelipad) {
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(rx + b.w * 0.5, ry + b.h * 0.5, 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.font = '700 9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.fillText('H', rx + b.w * 0.5, ry + b.h * 0.5);
+    } else if (b.label) {
+      ctx.font = '700 8px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = `${b.accentColor}aa`;
+      ctx.fillText(b.label, rx + b.w * 0.5, ry + b.h * 0.5);
+    }
+  }
 
   // 3. Render City Road Network (Edges & Ambient Cars)
   const nodeMap = new Map(net.nodes.map((n) => [n.id, n]));
@@ -1152,14 +1403,13 @@ function renderSurvivorCanvas(
     const nx = -uy;
     const ny = ux;
 
-    const roadW = Math.max(14, edge.lanes * 8);
+    const roadW = Math.max(15, edge.lanes * 8.5);
     const latOffset = roadW * 0.55 + 2;
     const sx = from.x + nx * latOffset;
     const sy = from.y + ny * latOffset;
     const ex = to.x + nx * latOffset;
     const ey = to.y + ny * latOffset;
 
-    // Road asphalt body
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     ctx.lineTo(ex, ey);
@@ -1167,19 +1417,17 @@ function renderSurvivorCanvas(
     ctx.lineWidth = roadW;
     ctx.stroke();
 
-    // Neon road rails
     ctx.beginPath();
     ctx.moveTo(sx + nx * (roadW * 0.5), sy + ny * (roadW * 0.5));
     ctx.lineTo(ex + nx * (roadW * 0.5), ey + ny * (roadW * 0.5));
     ctx.moveTo(sx - nx * (roadW * 0.5), sy - ny * (roadW * 0.5));
     ctx.lineTo(ex - nx * (roadW * 0.5), ey - ny * (roadW * 0.5));
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.36)';
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    // Center dashed lane line
     ctx.save();
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
     ctx.lineWidth = 1;
     ctx.setLineDash([6, 8]);
     ctx.beginPath();
@@ -1189,7 +1437,6 @@ function renderSurvivorCanvas(
     ctx.restore();
   }
 
-  // Ambient flow particles along roads
   for (const ac of engine.getAmbientCars()) {
     const edge = net.edges.find((e) => e.id === ac.edgeId);
     if (!edge) continue;
@@ -1208,20 +1455,29 @@ function renderSurvivorCanvas(
     const cy = from.y + dy * ac.progress + ny * lat;
 
     ctx.strokeStyle = `${ac.color}66`;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.2;
     ctx.beginPath();
     ctx.moveTo(cx - ux * 5, cy - uy * 5);
     ctx.lineTo(cx + ux * 2, cy + uy * 2);
     ctx.stroke();
   }
 
-  // 4. Render City Intersections & Live Signals
+  // 4. Render City Intersections, Crosswalks & Live Signals
   for (const node of net.nodes) {
     const sig = TrafficSimulator.evaluateSignalState(
       node.signal,
       st.elapsedSeconds
     );
-    const radius = 24;
+    const radius = 25;
+
+    // Crosswalk zebra stripes around intersection perimeter
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.22)';
+    for (let i = -2; i <= 2; i++) {
+      ctx.fillRect(node.x + i * 5 - 1.5, node.y - radius - 9, 3, 5);
+      ctx.fillRect(node.x + i * 5 - 1.5, node.y + radius + 4, 3, 5);
+      ctx.fillRect(node.x - radius - 9, node.y + i * 5 - 1.5, 5, 3);
+      ctx.fillRect(node.x + radius + 4, node.y + i * 5 - 1.5, 5, 3);
+    }
 
     ctx.beginPath();
     ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
@@ -1255,7 +1511,19 @@ function renderSurvivorCanvas(
     ctx.font = '600 10px "Pretendard", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText(node.name, node.x, node.y + radius + 14);
+    ctx.fillText(node.name, node.x, node.y + radius + 16);
+  }
+
+  // 4.5 Render Tire Track Marks
+  for (const tr of st.tireTracks) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, (tr.timer / 1.1) * 0.42);
+    ctx.translate(tr.x, tr.y);
+    ctx.rotate(tr.angle);
+    ctx.fillStyle = tr.color;
+    ctx.fillRect(-4, -7, 7, 2.2);
+    ctx.fillRect(-4, 5, 7, 2.2);
+    ctx.restore();
   }
 
   // 5. Render Active Intersection Signal Optimization Mission Zone
@@ -1263,18 +1531,16 @@ function renderSurvivorCanvas(
     const m = st.activeMission;
     const pulse = 1 + Math.sin(st.elapsedSeconds * 6) * 0.06;
 
-    // Outer capture zone
     ctx.save();
     ctx.beginPath();
     ctx.arc(m.x, m.y, m.radius * pulse, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(16, 185, 129, 0.11)';
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+    ctx.lineWidth = 2.2;
     ctx.setLineDash([8, 6]);
     ctx.stroke();
 
-    // Progress arc
     if (m.progress > 0) {
       ctx.setLineDash([]);
       ctx.beginPath();
@@ -1340,10 +1606,10 @@ function renderSurvivorCanvas(
     ctx.translate(g.x, g.y);
     ctx.rotate(Math.PI / 4);
     ctx.fillStyle = color;
-    ctx.fillRect(-4, -4, 8, 8);
+    ctx.fillRect(-4.2, -4.2, 8.4, 8.4);
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 0.8;
-    ctx.strokeRect(-4, -4, 8, 8);
+    ctx.strokeRect(-4.2, -4.2, 8.4, 8.4);
     ctx.restore();
   }
 
@@ -1357,7 +1623,7 @@ function renderSurvivorCanvas(
     ctx.arc(0, 0, pk.radius, 0, Math.PI * 2);
     ctx.fillStyle =
       pk.kind === 'BOSS_CHEST'
-        ? 'rgba(245, 158, 11, 0.28)'
+        ? 'rgba(245, 158, 11, 0.3)'
         : pk.kind === 'REPAIR_KIT'
         ? 'rgba(16, 185, 129, 0.25)'
         : 'rgba(34, 211, 238, 0.25)';
@@ -1391,24 +1657,22 @@ function renderSurvivorCanvas(
   for (const t of st.turrets) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(t.x, t.y, 12, 0, Math.PI * 2);
+    ctx.arc(t.x, t.y, 13, 0, Math.PI * 2);
     ctx.fillStyle = '#0f172a';
     ctx.fill();
     ctx.strokeStyle = t.evolved ? '#fde047' : '#eab308';
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Traffic light dots on turret
     ctx.fillStyle = '#10b981';
     ctx.beginPath();
-    ctx.arc(t.x, t.y, 4.5, 0, Math.PI * 2);
+    ctx.arc(t.x, t.y, 4.8, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
-  // 9. Render Enemies (Traffic Congestion Vehicles & Bosses)
+  // 9. Render Enemies using Real Top-Down Vehicle SVG Sprites!
   for (const e of st.enemies) {
-    // If Rogue Racer is preparing a charge, draw warning trajectory line
     if (
       e.type === 'ROGUE_RACER' &&
       e.chargePhaseTimer &&
@@ -1420,8 +1684,8 @@ function renderSurvivorCanvas(
       ctx.beginPath();
       ctx.moveTo(e.x, e.y);
       ctx.lineTo(e.chargeTargetX, e.chargeTargetY);
-      ctx.strokeStyle = 'rgba(244, 63, 94, 0.75)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(244, 63, 94, 0.8)';
+      ctx.lineWidth = 2.2;
       ctx.setLineDash([6, 4]);
       ctx.stroke();
       ctx.restore();
@@ -1431,42 +1695,44 @@ function renderSurvivorCanvas(
     ctx.translate(e.x, e.y);
     ctx.rotate(e.angle);
 
-    const w = e.radius * 1.55;
-    const h = e.radius * 1.05;
+    const w = e.radius * 2.15;
+    const h = e.radius * 1.42;
+    const sprite = spriteCache.getEnemySprite(e.type);
 
-    // Vehicle chassis
-    ctx.fillStyle = e.hitFlashTimer > 0 ? '#ffffff' : e.color;
-    ctx.strokeStyle = e.isBoss
-      ? '#fde047'
-      : e.isElite
-      ? '#38bdf8'
-      : '#090d16';
-    ctx.lineWidth = e.isBoss ? 2.8 : e.isElite ? 2 : 1.2;
+    if (e.isElite && !e.isBoss) {
+      ctx.beginPath();
+      ctx.arc(0, 0, e.radius * 1.15, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
-    ctx.beginPath();
-    ctx.roundRect(-w * 0.5, -h * 0.5, w, h, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    // Windshield & Headlights
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-    ctx.fillRect(w * 0.05, -h * 0.36, w * 0.26, h * 0.72);
-
-    ctx.fillStyle = '#fef08a';
-    ctx.fillRect(w * 0.42, -h * 0.38, 3, 3);
-    ctx.fillRect(w * 0.42, h * 0.38 - 3, 3, 3);
+    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+      ctx.drawImage(sprite, -w * 0.5, -h * 0.5, w, h);
+      if (e.hitFlashTimer > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(-w * 0.42, -h * 0.38, w * 0.84, h * 0.76);
+      }
+    } else {
+      ctx.fillStyle = e.hitFlashTimer > 0 ? '#ffffff' : e.color;
+      ctx.strokeStyle = e.isBoss ? '#fde047' : '#090d16';
+      ctx.lineWidth = e.isBoss ? 2.5 : 1.2;
+      ctx.beginPath();
+      ctx.roundRect(-w * 0.42, -h * 0.42, w * 0.84, h * 0.84, 4);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     ctx.restore();
 
-    // HP Bar for damaged enemies, elites, and bosses
     if (e.isBoss || e.isElite || e.hp < e.maxHp) {
-      const barW = e.isBoss ? 68 : 28;
+      const barW = e.isBoss ? 72 : 28;
       const barH = e.isBoss ? 6 : 3.5;
       const bx = e.x - barW * 0.5;
-      const by = e.y - e.radius - (e.isBoss ? 16 : 9);
+      const by = e.y - e.radius - (e.isBoss ? 18 : 9);
       const ratio = Math.max(0, Math.min(1, e.hp / e.maxHp));
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
       ctx.fillRect(bx, by, barW, barH);
       ctx.fillStyle = e.isBoss ? '#f43f5e' : '#fbbf24';
       ctx.fillRect(bx, by, barW * ratio, barH);
@@ -1496,10 +1762,9 @@ function renderSurvivorCanvas(
     const orbSize =
       (orbWeapon.evolved ? 15 : 11) * engine.getAreaMultiplier();
 
-    // Subtle orbit ring
     ctx.beginPath();
     ctx.arc(p.x, p.y, orbitRadius, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.16)';
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.18)';
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
@@ -1520,7 +1785,7 @@ function renderSurvivorCanvas(
     }
   }
 
-  // 11. Render Projectiles, Slashes & Sky Lasers
+  // 11. Render Projectiles, Slashes & Lasers
   for (const s of st.slashes) {
     const alpha = Math.max(0, s.timer / s.maxTimer);
     ctx.save();
@@ -1559,7 +1824,7 @@ function renderSurvivorCanvas(
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(l.x2, l.y2, 16, 0, Math.PI * 2);
+    ctx.arc(l.x2, l.y2, 13, 0, Math.PI * 2);
     ctx.fillStyle = `${l.color}66`;
     ctx.fill();
     ctx.restore();
@@ -1606,65 +1871,69 @@ function renderSurvivorCanvas(
     ctx.restore();
   }
 
-  // 13. Render Player Patrol Vehicle
+  // 13. Render Player Patrol Vehicle using Real Top-Down SVG Sprite!
   ctx.save();
   ctx.translate(p.x, p.y);
 
-  // Slipstream speed boost ring
-  if (p.onRoadSpeedBoost || p.sirenDashActiveTimer > 0) {
+  if (
+    p.onRoadSpeedBoost ||
+    p.sirenDashActiveTimer > 0 ||
+    st.feverActiveTimer > 0
+  ) {
     ctx.beginPath();
-    ctx.arc(0, 0, 23, 0, Math.PI * 2);
+    ctx.arc(0, 0, 26, 0, Math.PI * 2);
     ctx.strokeStyle =
-      p.sirenDashActiveTimer > 0
+      st.feverActiveTimer > 0
+        ? '#10b981'
+        : p.sirenDashActiveTimer > 0
         ? '#fde047'
-        : 'rgba(34, 211, 238, 0.45)';
-    ctx.lineWidth = p.sirenDashActiveTimer > 0 ? 3 : 1.5;
+        : 'rgba(34, 211, 238, 0.5)';
+    ctx.lineWidth =
+      st.feverActiveTimer > 0 || p.sirenDashActiveTimer > 0 ? 3.2 : 1.6;
     ctx.stroke();
   }
 
   ctx.rotate(p.angle);
 
   // Headlight cone
-  const coneGrad = ctx.createLinearGradient(10, 0, 75, 0);
-  coneGrad.addColorStop(0, 'rgba(34, 211, 238, 0.32)');
+  const coneGrad = ctx.createLinearGradient(12, 0, 82, 0);
+  coneGrad.addColorStop(0, 'rgba(34, 211, 238, 0.34)');
   coneGrad.addColorStop(1, 'rgba(34, 211, 238, 0)');
   ctx.fillStyle = coneGrad;
   ctx.beginPath();
-  ctx.moveTo(10, -6);
-  ctx.lineTo(75, -26);
-  ctx.lineTo(75, 26);
-  ctx.lineTo(10, 6);
+  ctx.moveTo(12, -7);
+  ctx.lineTo(82, -28);
+  ctx.lineTo(82, 28);
+  ctx.lineTo(12, 7);
   ctx.closePath();
   ctx.fill();
 
-  // Player chassis
-  ctx.fillStyle =
-    p.invulnerableTimer > 0 && Math.floor(st.elapsedSeconds * 16) % 2 === 0
-      ? '#ffffff'
-      : cls.color;
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.roundRect(-15, -10, 30, 20, 5);
-  ctx.fill();
-  ctx.stroke();
-
-  // Police / Traffic Control Siren Bar (Flashing Red & Cyan)
-  const sirenToggle = Math.floor(st.elapsedSeconds * 10) % 2 === 0;
-  ctx.fillStyle = sirenToggle ? '#f43f5e' : '#22d3ee';
-  ctx.fillRect(-3, -7, 5, 6);
-  ctx.fillStyle = sirenToggle ? '#22d3ee' : '#f43f5e';
-  ctx.fillRect(-3, 1, 5, 6);
+  const playerSprite = spriteCache.getClassSprite(p.classId);
+  if (
+    playerSprite &&
+    playerSprite.complete &&
+    playerSprite.naturalWidth > 0
+  ) {
+    ctx.drawImage(playerSprite, -24, -16, 48, 32);
+  } else {
+    ctx.fillStyle = cls.color;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-16, -11, 32, 22, 5);
+    ctx.fill();
+    ctx.stroke();
+  }
 
   ctx.restore();
 
   // Overhead Player HP Mini Bar
-  const pBarW = 36;
+  const pBarW = 38;
   const pRatio = Math.max(0, Math.min(1, p.hp / p.maxHp));
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-  ctx.fillRect(p.x - pBarW * 0.5, p.y - 26, pBarW, 4.5);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  ctx.fillRect(p.x - pBarW * 0.5, p.y - 28, pBarW, 4.5);
   ctx.fillStyle = pRatio > 0.35 ? '#10b981' : '#f43f5e';
-  ctx.fillRect(p.x - pBarW * 0.5, p.y - 26, pBarW * pRatio, 4.5);
+  ctx.fillRect(p.x - pBarW * 0.5, p.y - 28, pBarW * pRatio, 4.5);
 
   // 14. Render Floating Damage & Status Numbers
   for (const ft of st.floatingTexts) {
@@ -1736,16 +2005,16 @@ function renderSurvivorCanvas(
     ctx.restore();
   }
 
-  // 17. Top-Right Minimap Radar
-  const mapW = 164;
-  const mapH = 124;
+  // 17. Top-Right Tactical Minimap Radar
+  const mapW = 168;
+  const mapH = 128;
   const mapX = viewW - mapW - 14;
   const mapY = 14;
 
   ctx.save();
-  ctx.fillStyle = 'rgba(6, 12, 26, 0.88)';
-  ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
-  ctx.lineWidth = 1.2;
+  ctx.fillStyle = 'rgba(6, 12, 26, 0.9)';
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+  ctx.lineWidth = 1.4;
   ctx.fillRect(mapX, mapY, mapW, mapH);
   ctx.strokeRect(mapX, mapY, mapW, mapH);
 
@@ -1756,8 +2025,7 @@ function renderSurvivorCanvas(
   const toMiniY = (wy: number) =>
     mapY + 8 + ((wy - bounds.minY) / worldH) * (mapH - 16);
 
-  // Roads in minimap
-  ctx.strokeStyle = 'rgba(56, 189, 248, 0.3)';
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.32)';
   ctx.lineWidth = 1;
   for (const e of net.edges) {
     const a = nodeMap.get(e.from);
@@ -1769,7 +2037,6 @@ function renderSurvivorCanvas(
     ctx.stroke();
   }
 
-  // Active Mission in minimap
   if (st.activeMission) {
     ctx.fillStyle = '#fde047';
     ctx.beginPath();
@@ -1783,21 +2050,19 @@ function renderSurvivorCanvas(
     ctx.fill();
   }
 
-  // Enemies in minimap
   for (const e of st.enemies) {
     ctx.fillStyle = e.isBoss ? '#f43f5e' : 'rgba(248, 113, 113, 0.75)';
     ctx.fillRect(
-      toMiniX(e.x) - (e.isBoss ? 2.5 : 1),
-      toMiniY(e.y) - (e.isBoss ? 2.5 : 1),
-      e.isBoss ? 5 : 2,
-      e.isBoss ? 5 : 2
+      toMiniX(e.x) - (e.isBoss ? 3 : 1),
+      toMiniY(e.y) - (e.isBoss ? 3 : 1),
+      e.isBoss ? 6 : 2,
+      e.isBoss ? 6 : 2
     );
   }
 
-  // Player dot in minimap
   ctx.fillStyle = '#22d3ee';
   ctx.beginPath();
-  ctx.arc(toMiniX(p.x), toMiniY(p.y), 3.5, 0, Math.PI * 2);
+  ctx.arc(toMiniX(p.x), toMiniY(p.y), 3.8, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();

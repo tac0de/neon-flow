@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">
+    <!-- Wheels -->
+    <rect x="22" y="10" width="20" height="8" rx="3" fill="#0f172a" stroke="#fb7185" stroke-width="1.5"/>
+    <rect x="76" y="10" width="20" height="8" rx="3" fill="#0f172a" stroke="#fb7185" stroke-width="1.5"/>
+    <rect x="22" y="62" width="20" height="8" rx="3" fill="#0f172a" stroke="#fb7185" stroke-width="1.5"/>
+    <rect x="76" y="62" width="20" height="8" rx="3" fill="#0f172a" stroke="#fb7185" stroke-width="1.5"/>
+    <!-- White & Crimson Responder Hull -->
+    <rect x="14" y="16" width="96" height="48" rx="10" fill="#f8fafc" stroke="#f43f5e" stroke-width="2.5"/>
+    <path d="M72,16 L102,16 C108,16 110,22 110,28 L110,52 C110,58 108,64 102,64 L72,64 Z" fill="#e11d48"/>
+    <!-- Windshield -->
+    <rect x="78" y="22" width="20" height="36" rx="4" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <!-- Neon Red Cross Emblem on Roof -->
+    <rect x="38" y="26" width="12" height="28" rx="2" fill="#f43f5e"/>
+    <rect x="30" y="34" width="28" height="12" rx="2" fill="#f43f5e"/>
+    <!-- Emergency Beacons -->
+    <circle cx="70" cy="24" r="4" fill="#22d3ee"/>
+    <circle cx="70" cy="56" r="4" fill="#22d3ee"/>
+  </svg>

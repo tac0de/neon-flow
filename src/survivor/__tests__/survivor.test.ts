@@ -3,14 +3,21 @@ import { TrafficSurvivorEngine } from '../survivorEngine';
 import { DEFAULT_META_UPGRADES, WEAPON_DEFS } from '../survivorData';
 
 describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
-  it('1. 4종 기체 클래스 및 3종 도시 스테이지가 정상 초기화된다', () => {
+  it('1. 6종 기체 클래스 및 4종 도시 스테이지, 3D 빌딩 블록이 정상 초기화된다', () => {
     const classes = [
       'INTERCEPTOR',
       'TOW_MECH',
       'SIGNAL_DRONE',
       'EMP_SWEEPER',
+      'CYBER_MEDIC',
+      'RAIL_ENFORCER',
     ] as const;
-    const stages = ['COMMUTE_GRID', 'BRAESS_MAZE', 'MEGACITY_HELL'] as const;
+    const stages = [
+      'COMMUTE_GRID',
+      'BRAESS_MAZE',
+      'SEOUL_BELTWAY',
+      'MEGACITY_HELL',
+    ] as const;
 
     for (const c of classes) {
       for (const s of stages) {
@@ -21,23 +28,27 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
         expect(state.stageId).toBe(s);
         expect(state.player.weapons.length).toBe(1);
         expect(state.player.hp).toBeGreaterThan(0);
+        expect(engine.getCityBlocks().length).toBeGreaterThan(0);
       }
     }
   });
 
-  it('2. AI 자율주행 및 자동 무기 사격으로 체증 차량을 처치하고 경험치 젬을 획득한다', () => {
-    const engine = new TrafficSurvivorEngine(
-      'INTERCEPTOR',
-      'COMMUTE_GRID',
-      {
-        ...DEFAULT_META_UPGRADES,
-        damageLevel: 5,
-      }
-    );
+  it('2. AI 자율주행 및 10종 무기(연쇄 스파크·레일건 포함)로 체증 차량을 처치하고 콤보와 피버를 쌓는다', () => {
+    const engine = new TrafficSurvivorEngine('RAIL_ENFORCER', 'COMMUTE_GRID', {
+      ...DEFAULT_META_UPGRADES,
+      damageLevel: 5,
+    });
 
-    // Equip extra weapons so combat clears enemies rapidly
     const st = engine.getState();
     st.player.weapons.push(
+      {
+        id: 'CHAIN_SIGNAL_ARC',
+        level: 4,
+        evolved: false,
+        cooldownTimer: 0,
+        totalDamageDealt: 0,
+        kills: 0,
+      },
       {
         id: 'EMP_AURA',
         level: 4,
@@ -53,18 +64,9 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
         cooldownTimer: 0,
         totalDamageDealt: 0,
         kills: 0,
-      },
-      {
-        id: 'SPEED_CAMERA_LASER',
-        level: 4,
-        evolved: false,
-        cooldownTimer: 0,
-        totalDamageDealt: 0,
-        kills: 0,
       }
     );
 
-    // Simulate 25 seconds of gameplay at dt=0.05s
     for (let i = 0; i < 500; i++) {
       if (engine.getState().status === 'LEVEL_UP') {
         const choice = engine.getState().pendingLevelChoices[0];
@@ -77,26 +79,27 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
     const after = engine.getState();
     expect(after.elapsedSeconds).toBeGreaterThan(20);
     expect(after.player.kills).toBeGreaterThan(0);
+    expect(after.maxCombo).toBeGreaterThan(0);
     expect(after.player.creditsEarned).toBeGreaterThan(0);
   });
 
-  it('3. 긴급 사이렌 돌파(Siren Dash)가 정체 게이지를 낮추고 쿨타임을 적용한다', () => {
+  it('3. 긴급 사이렌 돌파(Space) 및 전 도시 그린웨이브 동기화(Q) 스킬이 정상 작동한다', () => {
     const engine = new TrafficSurvivorEngine(
       'TOW_MECH',
       'COMMUTE_GRID',
       DEFAULT_META_UPGRADES
     );
     const st = engine.getState();
-    st.gridlockGauge = 55;
+    st.gridlockGauge = 70;
 
-    const triggered = engine.triggerSirenDash();
-    expect(triggered).toBe(true);
-    expect(st.gridlockGauge).toBeLessThan(55);
-    expect(st.player.sirenDashCooldown).toBeGreaterThan(0);
-    expect(st.player.invulnerableTimer).toBeGreaterThan(0);
-
-    // Cannot trigger again immediately while on cooldown
+    expect(engine.triggerSirenDash()).toBe(true);
+    expect(st.gridlockGauge).toBeLessThan(70);
     expect(engine.triggerSirenDash()).toBe(false);
+
+    const prevGridlock = st.gridlockGauge;
+    expect(engine.triggerCitywideOverride()).toBe(true);
+    expect(st.gridlockGauge).toBeLessThan(prevGridlock);
+    expect(engine.triggerCitywideOverride()).toBe(false);
   });
 
   it('4. 레벨 5 무기와 시너지 패시브 보유 시 ★궁극 진화 선택지가 생성되고 적용된다', () => {
@@ -107,7 +110,6 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
     );
     const st = engine.getState();
 
-    // Set starting weapon GREEN_WAVE_PULSE to max level (5) and add its synergy passive OVERCLOCK_COIL
     st.player.weapons[0].level = WEAPON_DEFS.GREEN_WAVE_PULSE.maxLevel;
     st.player.passives.OVERCLOCK_COIL = 1;
 
@@ -133,7 +135,6 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
     const boss = engine.spawnBoss('BOSS_JUGGERNAUT');
     expect(st.activeBossAlert).toContain('트레일러');
 
-    // Move boss within EMP_AURA radius (105m) but outside immediate chest pickup radius (38m)
     boss.x = st.player.x + 65;
     boss.y = st.player.y;
     boss.hp = 1;
@@ -144,7 +145,6 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
     const chest = st.pickups.find((pk) => pk.kind === 'BOSS_CHEST');
     expect(chest).toBeDefined();
 
-    // Move player onto chest to collect it
     st.player.x = chest!.x;
     st.player.y = chest!.y;
     engine.update(0.05, { moveX: 0, moveY: 0 });
@@ -163,7 +163,6 @@ describe('NEON FLOW: GRIDLOCK SURVIVORS Engine Suite', () => {
     );
     const st = engine.getState();
 
-    // Advance until activeMission spawns
     for (let i = 0; i < 120 && !st.activeMission; i++) {
       engine.update(0.05, { moveX: 0, moveY: 0 });
     }

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">
+    <!-- 4 Quad-Rotor Nacelles -->
+    <circle cx="30" cy="18" r="14" fill="#064e3b" stroke="#34d399" stroke-width="2.2"/>
+    <circle cx="90" cy="18" r="14" fill="#064e3b" stroke="#34d399" stroke-width="2.2"/>
+    <circle cx="30" cy="62" r="14" fill="#064e3b" stroke="#34d399" stroke-width="2.2"/>
+    <circle cx="90" cy="62" r="14" fill="#064e3b" stroke="#34d399" stroke-width="2.2"/>
+    <!-- Rotor Blades -->
+    <line x1="20" y1="18" x2="40" y2="18" stroke="#a7f3d0" stroke-width="2.5"/>
+    <line x1="80" y1="18" x2="100" y2="18" stroke="#a7f3d0" stroke-width="2.5"/>
+    <line x1="20" y1="62" x2="40" y2="62" stroke="#a7f3d0" stroke-width="2.5"/>
+    <line x1="80" y1="62" x2="100" y2="62" stroke="#a7f3d0" stroke-width="2.5"/>
+    <!-- Frame Struts -->
+    <line x1="30" y1="18" x2="90" y2="62" stroke="#10b981" stroke-width="4"/>
+    <line x1="30" y1="62" x2="90" y2="18" stroke="#10b981" stroke-width="4"/>
+    <!-- Central Diamond Hull -->
+    <polygon points="24,40 60,20 108,40 60,60" fill="#065f46" stroke="#6ee7b7" stroke-width="2.2"/>
+    <!-- Traffic Signal Core Triad -->
+    <circle cx="48" cy="40" r="5" fill="#f43f5e"/>
+    <circle cx="62" cy="40" r="5" fill="#f59e0b"/>
+    <circle cx="76" cy="40" r="6" fill="#10b981" stroke="#ffffff" stroke-width="1.5"/>
+  </svg>

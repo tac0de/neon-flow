@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">
+    <!-- Wheels -->
+    <rect x="20" y="10" width="22" height="8" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <rect x="74" y="10" width="22" height="8" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <rect x="20" y="62" width="22" height="8" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <rect x="74" y="62" width="22" height="8" rx="2" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <!-- Armored Hull -->
+    <polygon points="12,18 94,16 112,26 112,54 94,64 12,62" fill="#1e3a8a" stroke="#60a5fa" stroke-width="2.2"/>
+    <!-- Roof-Mounted Electromagnetic Railgun -->
+    <rect x="22" y="31" width="96" height="18" rx="3" fill="#0f172a" stroke="#fde047" stroke-width="2"/>
+    <line x1="28" y1="40" x2="118" y2="40" stroke="#22d3ee" stroke-width="4"/>
+    <circle cx="46" cy="40" r="8" fill="#0284c7" stroke="#fde047" stroke-width="2"/>
+  </svg>

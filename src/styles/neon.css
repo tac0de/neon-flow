@@ -2706,3 +2706,312 @@ body,
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+
+/* ==================== UPGRADED TACTICAL COCKPIT HUD & VISUAL ASSETS ==================== */
+.cockpit-pilot-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pilot-sprite-frame {
+  position: relative;
+  width: 56px;
+  height: 38px;
+  border-radius: 7px;
+  background: radial-gradient(circle at center, #0e2444 0%, #050c1b 100%);
+  border: 1.5px solid rgba(34, 211, 238, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+}
+
+.pilot-sprite-img {
+  width: 48px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.pilot-lv-badge {
+  position: absolute;
+  bottom: -5px;
+  right: -5px;
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 99px;
+  border: 1px solid #7dd3fc;
+}
+
+.pilot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pilot-class-name {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pilot-stage-sub {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.traffic-led {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.traffic-led.green {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.traffic-led.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
+.traffic-led.red {
+  background: #f43f5e;
+  box-shadow: 0 0 8px #f43f5e;
+}
+
+.s-bar-fill.fever-charge {
+  background: linear-gradient(90deg, #f59e0b, #fde047);
+}
+
+.s-bar-fill.fever-rainbow {
+  background: linear-gradient(90deg, #10b981, #22d3ee, #fde047, #f43f5e);
+}
+
+.fever-active-card {
+  border-color: #fde047 !important;
+  box-shadow: 0 0 14px rgba(253, 224, 71, 0.35);
+}
+
+.s-ctrl-btn.override-btn.ready {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.65);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+}
+
+.s-ctrl-btn.override-btn.cooling {
+  opacity: 0.65;
+}
+
+/* Top-Center Boss Health Bar HUD */
+.boss-hud-bar-card {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 86vw);
+  background: rgba(15, 10, 28, 0.92);
+  border: 1.5px solid rgba(244, 63, 94, 0.75);
+  border-radius: 10px;
+  padding: 8px 14px;
+  z-index: 20;
+  box-shadow: 0 0 28px rgba(244, 63, 94, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+.boss-hud-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.boss-hud-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.boss-hud-sprite {
+  width: 52px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.boss-hud-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fda4af;
+}
+
+.boss-hud-sub {
+  font-size: 10px;
+  color: #cbd5e1;
+}
+
+.boss-hud-hp {
+  font-size: 12px;
+  font-weight: 800;
+  color: #fde047;
+}
+
+.boss-hud-track {
+  width: 100%;
+  height: 9px;
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 99px;
+  overflow: hidden;
+  border: 1px solid rgba(244, 63, 94, 0.45);
+}
+
+.boss-hud-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #be123c, #f43f5e, #fbbf24);
+  transition: width 0.1s ease;
+}
+
+/* Floating Combo Counter Badge */
+.combo-floating-badge {
+  position: absolute;
+  right: 16px;
+  top: 152px;
+  background: rgba(9, 18, 36, 0.9);
+  border: 1.5px solid rgba(251, 191, 36, 0.65);
+  border-radius: 9px;
+  padding: 6px 12px;
+  text-align: right;
+  z-index: 12;
+  pointer-events: none;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.3);
+}
+
+.combo-num {
+  font-size: 18px;
+  font-weight: 900;
+  color: #fde047;
+}
+
+.combo-lbl {
+  font-size: 10px;
+  color: #bae6fd;
+  font-weight: 700;
+}
+
+.inv-slot {
+  width: 56px;
+  height: 44px;
+  padding: 2px;
+}
+
+.inv-slot-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Hero Banners in Modals */
+.lobby-hero-banner,
+.chest-banner-strip {
+  position: relative;
+  width: 100%;
+  height: 138px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  flex-shrink: 0;
+}
+
+.lobby-hero-img,
+.chest-banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 35%;
+  filter: brightness(0.72);
+}
+
+.lobby-hero-overlay,
+.chest-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(4, 8, 18, 0.92) 0%,
+    rgba(4, 8, 18, 0.68) 60%,
+    rgba(4, 8, 18, 0.85) 100%
+  );
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chest-banner-overlay {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+}
+
+.lobby-hero-overlay h2,
+.chest-banner-overlay h2 {
+  font-size: 18px;
+  color: #ffffff;
+  margin: 4px 0 2px;
+}
+
+.lobby-hero-overlay p,
+.chest-banner-overlay p {
+  font-size: 11.5px;
+  color: #e2e8f0;
+}
+
+.class-card-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.class-card-sprite {
+  width: 48px;
+  height: 32px;
+  object-fit: contain;
+  background: rgba(4, 8, 18, 0.75);
+  border-radius: 5px;
+  padding: 2px;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+.boss-preview-card {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  height: 108px;
+  margin-top: 6px;
+}
+
+.boss-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+}
+
+.boss-preview-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(4, 8, 18, 0.86);
+  padding: 5px 10px;
+  font-size: 10.5px;
+  color: #fecdd3;
+}

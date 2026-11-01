@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">
+    <defs>
+      <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#082f49"/>
+        <stop offset="55%" stop-color="#0284c7"/>
+        <stop offset="100%" stop-color="#22d3ee"/>
+      </linearGradient>
+    </defs>
+    <!-- Rear Thruster Flames -->
+    <polygon points="4,26 18,22 18,32" fill="#38bdf8" opacity="0.85"/>
+    <polygon points="4,54 18,48 18,58" fill="#38bdf8" opacity="0.85"/>
+    <!-- Wheels -->
+    <rect x="24" y="10" width="20" height="8" rx="3" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <rect x="74" y="10" width="20" height="8" rx="3" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <rect x="24" y="62" width="20" height="8" rx="3" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <rect x="74" y="62" width="20" height="8" rx="3" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <!-- Main Chassis -->
+    <path d="M16,20 L88,16 L112,26 L112,54 L88,64 L16,60 Z" fill="url(#bodyGrad)" stroke="#e0f2fe" stroke-width="2.2"/>
+    <!-- Hood Stripes -->
+    <path d="M72,26 L106,30 L106,50 L72,54 Z" fill="#0f172a" opacity="0.65"/>
+    <line x1="75" y1="40" x2="110" y2="40" stroke="#22d3ee" stroke-width="2.5"/>
+    <!-- Windshield & Cabin -->
+    <polygon points="42,24 72,22 80,28 80,52 72,58 42,56" fill="#040d1a" stroke="#38bdf8" stroke-width="1.5"/>
+    <!-- Police Siren Lightbar -->
+    <rect x="52" y="25" width="10" height="14" rx="2" fill="#f43f5e" stroke="#ffffff" stroke-width="1"/>
+    <rect x="52" y="41" width="10" height="14" rx="2" fill="#22d3ee" stroke="#ffffff" stroke-width="1"/>
+    <!-- Headlights -->
+    <rect x="106" y="24" width="6" height="8" rx="2" fill="#ffffff"/>
+    <rect x="106" y="48" width="6" height="8" rx="2" fill="#ffffff"/>
+  </svg>

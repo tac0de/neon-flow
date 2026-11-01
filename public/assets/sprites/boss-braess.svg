@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 116" width="190" height="116">
+    <!-- Supreme Braess Leviathan Dreadnought -->
+    <polygon points="12,18 148,10 184,30 184,86 148,106 12,98" fill="#500724" stroke="#f472b6" stroke-width="3.5"/>
+    <polygon points="26,28 136,22 162,38 162,78 136,94 26,88" fill="#1e1b4b" stroke="#22d3ee" stroke-width="2"/>
+    <!-- Central Paradox Core -->
+    <circle cx="88" cy="58" r="24" fill="#090d16" stroke="#fde047" stroke-width="3"/>
+    <polygon points="88,38 106,58 88,78 70,58" fill="#ec4899" stroke="#ffffff" stroke-width="1.5"/>
+    <!-- Front Laser Mandibles -->
+    <polygon points="162,18 188,28 162,38" fill="#22d3ee"/>
+    <polygon points="162,78 188,88 162,98" fill="#22d3ee"/>
+  </svg>

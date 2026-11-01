@@ -2,12 +2,10 @@ import { CityNetworkData, NodeData } from '../types/simulation';
 import {
   ActiveWeaponInstance,
   AmbientRoadCar,
+  CityBuildingBlock,
   EnemyEntity,
   EnemyType,
-  FloatingText,
-  LaserBeamEffect,
   MetaUpgradesState,
-  ParticleEffect,
   PassiveId,
   PickupEntity,
   ProjectileEntity,
@@ -45,14 +43,17 @@ export class TrafficSurvivorEngine {
   private meta: MetaUpgradesState;
   private state: SurvivorGameState;
   private ambientCars: AmbientRoadCar[] = [];
+  private cityBlocks: CityBuildingBlock[] = [];
 
   private nextEntityId = 1;
   private spawnAccumulator = 0;
-  private missionCooldownTimer = 5.0;
+  private missionCooldownTimer = 4.5;
+  private tireTrackTimer = 0;
   private boss1Spawned = false;
   private boss2Spawned = false;
   private boss3Spawned = false;
   private orbitalHitCooldowns: Map<number, number> = new Map();
+  private handlingHazmatChain = false;
 
   constructor(
     classId: SurvivorClassId,
@@ -67,6 +68,7 @@ export class TrafficSurvivorEngine {
     this.bounds = this.computeWorldBounds(this.network);
     this.state = this.createInitialState(classId, stageId);
     this.initAmbientCars();
+    this.initCityBlocks();
   }
 
   private computeWorldBounds(net: CityNetworkData): WorldBounds {
@@ -82,7 +84,7 @@ export class TrafficSurvivorEngine {
       if (n.y > maxY) maxY = n.y;
     }
 
-    const pad = 260;
+    const pad = 270;
     return {
       minX: minX - pad,
       maxX: maxX + pad,
@@ -110,6 +112,55 @@ export class TrafficSurvivorEngine {
     }
   }
 
+  /**
+   * Generates decorative cyberpunk city building blocks in open spaces away from roads & intersections.
+   */
+  private initCityBlocks(): void {
+    this.cityBlocks = [];
+    const billboards = [
+      'NEON FLOW HQ',
+      'GRIDLOCK CTRL',
+      'GREEN WAVE AI',
+      'CYBER TRANSIT',
+      'HYPER LOOP 01',
+      'SMART SIGNAL',
+      'ZERO JAM ZONE',
+      'TECHNO TOWER',
+    ];
+    const colors = ['#22d3ee', '#a855f7', '#ec4899', '#10b981', '#38bdf8', '#f59e0b'];
+
+    let idx = 0;
+    for (let x = this.bounds.minX + 60; x <= this.bounds.maxX - 120; x += 135) {
+      for (let y = this.bounds.minY + 60; y <= this.bounds.maxY - 120; y += 125) {
+        const cx = x + 44;
+        const cy = y + 38;
+        // Skip if too close to any intersection node or road
+        let nearNode = false;
+        for (const n of this.network.nodes) {
+          if (Math.hypot(cx - n.x, cy - n.y) < 92) {
+            nearNode = true;
+            break;
+          }
+        }
+        if (nearNode || this.isPointNearRoad(cx, cy, 58)) continue;
+
+        const w = 64 + ((idx * 17) % 28);
+        const h = 54 + ((idx * 23) % 24);
+        this.cityBlocks.push({
+          x: cx - w / 2,
+          y: cy - h / 2,
+          w,
+          h,
+          heightFactor: 1 + (idx % 3) * 0.35,
+          accentColor: colors[idx % colors.length],
+          label: idx % 3 === 0 ? billboards[(idx / 3) % billboards.length | 0] : undefined,
+          hasHelipad: idx % 5 === 0,
+        });
+        idx++;
+      }
+    }
+  }
+
   private createInitialState(
     classId: SurvivorClassId,
     stageId: SurvivorStageId
@@ -117,7 +168,6 @@ export class TrafficSurvivorEngine {
     const cls = SURVIVOR_CLASSES[classId];
     const stage = SURVIVOR_STAGES[stageId];
 
-    // Spawn player at central node
     const startNode =
       this.network.nodes[Math.floor(this.network.nodes.length / 2)] || {
         x: this.bounds.centerX,
@@ -137,6 +187,13 @@ export class TrafficSurvivorEngine {
       gridlockGauge: 12,
       gridlockOverloadActive: false,
       smoothFlowBuffActive: true,
+      comboCount: 0,
+      comboTimer: 0,
+      maxCombo: 0,
+      feverGauge: 0,
+      feverActiveTimer: 0,
+      screenShakeTimer: 0,
+      screenShakeIntensity: 0,
       missionsCompleted: 0,
       activeBossAlert: null,
       activeBossAlertTimer: 0,
@@ -161,6 +218,7 @@ export class TrafficSurvivorEngine {
         invulnerableTimer: 1.0,
         sirenDashCooldown: 0,
         sirenDashActiveTimer: 0,
+        cityOverrideCooldown: 0,
         onRoadSpeedBoost: true,
         weapons: [
           {
@@ -183,6 +241,7 @@ export class TrafficSurvivorEngine {
       pickups: [],
       floatingTexts: [],
       particles: [],
+      tireTracks: [],
       activeMission: null,
       pendingLevelChoices: [],
       pendingChestRewards: [],
@@ -205,6 +264,10 @@ export class TrafficSurvivorEngine {
     return this.ambientCars;
   }
 
+  public getCityBlocks(): CityBuildingBlock[] {
+    return this.cityBlocks;
+  }
+
   public setStatus(status: SurvivorGameState['status']): void {
     this.state.status = status;
   }
@@ -222,6 +285,14 @@ export class TrafficSurvivorEngine {
     );
   }
 
+  private triggerScreenShake(intensity: number, duration: number): void {
+    this.state.screenShakeIntensity = Math.max(
+      this.state.screenShakeIntensity,
+      intensity
+    );
+    this.state.screenShakeTimer = Math.max(this.state.screenShakeTimer, duration);
+  }
+
   // ==================== STAT MULTIPLIERS ====================
   public getDamageMultiplier(): number {
     const cls = SURVIVOR_CLASSES[this.state.player.classId];
@@ -229,7 +300,8 @@ export class TrafficSurvivorEngine {
     const metaMult = 1 + this.meta.damageLevel * 0.1;
     const passiveLvl = this.state.player.passives.HIGH_VOLTAGE_CELL ?? 0;
     const passiveMult = 1 + passiveLvl * 0.18;
-    return classMult * metaMult * passiveMult;
+    const feverMult = this.state.feverActiveTimer > 0 ? 1.25 : 1.0;
+    return classMult * metaMult * passiveMult * feverMult;
   }
 
   public getCooldownMultiplier(): number {
@@ -238,7 +310,8 @@ export class TrafficSurvivorEngine {
     const metaMult = Math.max(0.65, 1 - this.meta.cooldownLevel * 0.05);
     const passiveLvl = this.state.player.passives.OVERCLOCK_COIL ?? 0;
     const passiveMult = Math.max(0.45, 1 - passiveLvl * 0.1);
-    return classMult * metaMult * passiveMult;
+    const feverMult = this.state.feverActiveTimer > 0 ? 0.65 : 1.0;
+    return classMult * metaMult * passiveMult * feverMult;
   }
 
   public getAreaMultiplier(): number {
@@ -251,10 +324,11 @@ export class TrafficSurvivorEngine {
 
   public getBonusProjectileCount(): number {
     const passiveLvl = this.state.player.passives.MULTI_LANE_CPU ?? 0;
-    if (passiveLvl >= 5) return 3;
-    if (passiveLvl >= 3) return 2;
-    if (passiveLvl >= 1) return 1;
-    return 0;
+    const feverBonus = this.state.feverActiveTimer > 0 ? 1 : 0;
+    if (passiveLvl >= 5) return 3 + feverBonus;
+    if (passiveLvl >= 3) return 2 + feverBonus;
+    if (passiveLvl >= 1) return 1 + feverBonus;
+    return feverBonus;
   }
 
   public getMoveSpeed(): number {
@@ -266,6 +340,7 @@ export class TrafficSurvivorEngine {
     const roadMult = this.state.player.onRoadSpeedBoost ? 1.15 : 1.0;
     const flowMult = this.state.smoothFlowBuffActive ? 1.12 : 1.0;
     const dashMult = this.state.player.sirenDashActiveTimer > 0 ? 1.85 : 1.0;
+    const feverMult = this.state.feverActiveTimer > 0 ? 1.22 : 1.0;
     return (
       cls.baseSpeed *
       classMult *
@@ -273,7 +348,8 @@ export class TrafficSurvivorEngine {
       passiveMult *
       roadMult *
       flowMult *
-      dashMult
+      dashMult *
+      feverMult
     );
   }
 
@@ -292,7 +368,7 @@ export class TrafficSurvivorEngine {
     return metaMult * flowMult;
   }
 
-  // ==================== ACTIVE SIREN DASH SKILL ====================
+  // ==================== ACTIVE SKILLS (SIREN DASH & CITY OVERRIDE) ====================
   public triggerSirenDash(): boolean {
     const p = this.state.player;
     if (p.sirenDashCooldown > 0 || this.state.status !== 'PLAYING') {
@@ -304,11 +380,11 @@ export class TrafficSurvivorEngine {
     p.invulnerableTimer = Math.max(p.invulnerableTimer, 1.0);
 
     soundEngine.playSirenDash();
+    this.triggerScreenShake(6, 0.25);
 
-    // Reduce gridlock gauge and knock back nearby enemies
     this.state.gridlockGauge = Math.max(0, this.state.gridlockGauge - 10);
-    const shockRadius = 210 * this.getAreaMultiplier();
-    const shockDamage = 38 * this.getDamageMultiplier();
+    const shockRadius = 215 * this.getAreaMultiplier();
+    const shockDamage = 40 * this.getDamageMultiplier();
 
     this.slashes.push({
       id: this.nextEntityId++,
@@ -334,11 +410,85 @@ export class TrafficSurvivorEngine {
         enemy.knockbackVx += nx * kb;
         enemy.knockbackVy += ny * kb;
         enemy.slowTimer = Math.max(enemy.slowTimer, 2.2);
-        this.damageEnemy(enemy, shockDamage, p.weapons[0]?.id || 'GREEN_WAVE_PULSE');
+        this.damageEnemy(
+          enemy,
+          shockDamage,
+          p.weapons[0]?.id || 'GREEN_WAVE_PULSE'
+        );
       }
     }
 
     this.addFloatingText(p.x, p.y - 26, '🚨 긴급 그린웨이브 돌파!', '#22d3ee', 13);
+    return true;
+  }
+
+  /**
+   * Second tactical skill [Q]: Citywide Green-Wave Signal Override EMP
+   */
+  public triggerCitywideOverride(): boolean {
+    const p = this.state.player;
+    if (p.cityOverrideCooldown > 0 || this.state.status !== 'PLAYING') {
+      return false;
+    }
+
+    p.cityOverrideCooldown = Math.max(9.0, 18.0 * this.getCooldownMultiplier());
+    soundEngine.playSignalOptimized();
+    this.triggerScreenShake(8, 0.35);
+
+    this.state.gridlockGauge = Math.max(0, this.state.gridlockGauge - 20);
+
+    // Pull all gems within 480m
+    for (const g of this.state.gems) {
+      if (Math.hypot(g.x - p.x, g.y - p.y) <= 480) {
+        g.magnetized = true;
+      }
+    }
+
+    // Strike up to 10 enemies with green intersection lightning
+    const dmg = 62 * this.getDamageMultiplier();
+    const targets = [...this.state.enemies]
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y)
+      )
+      .slice(0, 10);
+
+    for (const t of targets) {
+      this.state.lasers.push({
+        id: this.nextEntityId++,
+        x1: p.x,
+        y1: p.y,
+        x2: t.x,
+        y2: t.y,
+        color: '#10b981',
+        width: 4.5,
+        timer: 0.32,
+        maxTimer: 0.32,
+      });
+      t.slowTimer = Math.max(t.slowTimer, 3.0);
+      this.damageEnemy(t, dmg, p.weapons[0]?.id || 'GREEN_WAVE_PULSE');
+    }
+
+    this.slashes.push({
+      id: this.nextEntityId++,
+      x: p.x,
+      y: p.y,
+      angle: 0,
+      arcRadius: 340,
+      arcWidth: Math.PI * 2,
+      color: '#10b981',
+      evolved: true,
+      timer: 0.4,
+      maxTimer: 0.4,
+    });
+
+    this.addFloatingText(
+      p.x,
+      p.y - 32,
+      '🛰️ 전 도시 그린웨이브 신호 동기화! (-20% 정체)',
+      '#10b981',
+      14
+    );
     return true;
   }
 
@@ -350,7 +500,6 @@ export class TrafficSurvivorEngine {
   public computeAutoPilotInput(): { moveX: number; moveY: number } {
     const p = this.state.player;
 
-    // Auto-trigger Siren Dash if surrounded by close enemies
     let closeEnemies = 0;
     let repelX = 0;
     let repelY = 0;
@@ -372,11 +521,16 @@ export class TrafficSurvivorEngine {
     if (closeEnemies >= 3 && p.sirenDashCooldown <= 0) {
       this.triggerSirenDash();
     }
+    if (
+      (this.state.enemies.length >= 12 || this.state.gridlockGauge >= 55) &&
+      p.cityOverrideCooldown <= 0
+    ) {
+      this.triggerCitywideOverride();
+    }
 
     let attractX = 0;
     let attractY = 0;
 
-    // Priority 1: Boss Chest or Repair Kit when HP < 75%
     for (const pk of this.state.pickups) {
       const dx = pk.x - p.x;
       const dy = pk.y - p.y;
@@ -391,7 +545,6 @@ export class TrafficSurvivorEngine {
       attractY += (dy / d) * priority;
     }
 
-    // Priority 2: Active Intersection Signal Mission
     if (this.state.activeMission) {
       const m = this.state.activeMission;
       const dx = m.x - p.x;
@@ -401,12 +554,10 @@ export class TrafficSurvivorEngine {
         attractX += (dx / d) * 2.8;
         attractY += (dy / d) * 2.8;
       } else {
-        // Orbit gently inside the mission ring
         attractX += (-dy / Math.max(1, d)) * 0.9;
         attractY += (dx / Math.max(1, d)) * 0.9;
       }
     } else {
-      // Priority 3: Nearest XP Gem or pull toward center
       let bestGemDist = Infinity;
       let gx = 0;
       let gy = 0;
@@ -422,7 +573,6 @@ export class TrafficSurvivorEngine {
         attractX += (gx / bestGemDist) * 1.4;
         attractY += (gy / bestGemDist) * 1.4;
       } else {
-        // Gentle pull toward city center
         const cx = this.bounds.centerX - p.x;
         const cy = this.bounds.centerY - p.y;
         const cd = Math.max(1, Math.hypot(cx, cy));
@@ -433,7 +583,6 @@ export class TrafficSurvivorEngine {
       }
     }
 
-    // Boundary avoidance
     const margin = 120;
     if (p.x < this.bounds.minX + margin) repelX += 2.5;
     if (p.x > this.bounds.maxX - margin) repelX -= 2.5;
@@ -464,7 +613,30 @@ export class TrafficSurvivorEngine {
       }
     }
 
-    // Update ambient background cars on city edges
+    if (this.state.screenShakeTimer > 0) {
+      this.state.screenShakeTimer = Math.max(
+        0,
+        this.state.screenShakeTimer - clampedDt
+      );
+      if (this.state.screenShakeTimer <= 0) {
+        this.state.screenShakeIntensity = 0;
+      }
+    }
+
+    if (this.state.comboTimer > 0) {
+      this.state.comboTimer = Math.max(0, this.state.comboTimer - clampedDt);
+      if (this.state.comboTimer <= 0) {
+        this.state.comboCount = 0;
+      }
+    }
+
+    if (this.state.feverActiveTimer > 0) {
+      this.state.feverActiveTimer = Math.max(
+        0,
+        this.state.feverActiveTimer - clampedDt
+      );
+    }
+
     for (const ac of this.ambientCars) {
       ac.progress = (ac.progress + ac.speedFrac * clampedDt) % 1;
     }
@@ -523,14 +695,17 @@ export class TrafficSurvivorEngine {
     if (p.sirenDashActiveTimer > 0) {
       p.sirenDashActiveTimer = Math.max(0, p.sirenDashActiveTimer - dt);
     }
-
-    // Passive HP regeneration from MAGNET_TRANSPONDER
-    const magnetLv = p.passives.MAGNET_TRANSPONDER ?? 0;
-    if (magnetLv > 0 && p.hp < p.maxHp) {
-      p.hp = Math.min(p.maxHp, p.hp + magnetLv * 1.2 * dt);
+    if (p.cityOverrideCooldown > 0) {
+      p.cityOverrideCooldown = Math.max(0, p.cityOverrideCooldown - dt);
     }
 
-    // Check if player is currently on a city road for slipstream boost
+    // Passive HP regeneration from MAGNET_TRANSPONDER or CYBER_MEDIC class
+    const magnetLv = p.passives.MAGNET_TRANSPONDER ?? 0;
+    const medicRegen = p.classId === 'CYBER_MEDIC' ? 1.5 : 0;
+    if ((magnetLv > 0 || medicRegen > 0) && p.hp < p.maxHp) {
+      p.hp = Math.min(p.maxHp, p.hp + (magnetLv * 1.4 + medicRegen) * dt);
+    }
+
     p.onRoadSpeedBoost = this.isPointNearRoad(p.x, p.y, 26);
 
     const speed = this.getMoveSpeed();
@@ -551,7 +726,28 @@ export class TrafficSurvivorEngine {
 
     if (mag > 0.05) {
       p.angle = Math.atan2(ny, nx);
+      this.tireTrackTimer -= dt;
+      if (this.tireTrackTimer <= 0 && this.state.tireTracks.length < 70) {
+        this.tireTrackTimer = 0.055;
+        this.state.tireTracks.push({
+          x: p.x - Math.cos(p.angle) * 14,
+          y: p.y - Math.sin(p.angle) * 14,
+          angle: p.angle,
+          color:
+            this.state.feverActiveTimer > 0
+              ? '#10b981'
+              : p.sirenDashActiveTimer > 0
+              ? '#fde047'
+              : SURVIVOR_CLASSES[p.classId].color,
+          timer: 1.1,
+        });
+      }
     }
+
+    this.state.tireTracks = this.state.tireTracks.filter((tr) => {
+      tr.timer -= dt;
+      return tr.timer > 0;
+    });
   }
 
   private isPointNearRoad(wx: number, wy: number, threshold: number): boolean {
@@ -589,7 +785,7 @@ export class TrafficSurvivorEngine {
       this.state.waveLabel = 'WAVE 1 · 출근길 세단 & 칼치기 택시 유입';
     } else if (t < 75) {
       this.state.waveNumber = 2;
-      this.state.waveLabel = 'WAVE 2 · 교차로 꼬리물기 SUV 확산';
+      this.state.waveLabel = 'WAVE 2 · 교차로 꼬리물기 SUV & 유폭 탱크로리';
     } else if (t < 120) {
       this.state.waveNumber = 3;
       this.state.waveLabel = 'WAVE 3 · 불법주정차 탑차 & 폭주 슈퍼카 출몰';
@@ -601,7 +797,6 @@ export class TrafficSurvivorEngine {
       this.state.waveLabel = `OVERTIME WAVE ${this.state.waveNumber} · 무한 야근 대정체`;
     }
 
-    // Scheduled Boss Spawns
     if (!this.boss1Spawned && t >= 45) {
       this.boss1Spawned = true;
       this.spawnBoss('BOSS_JUGGERNAUT');
@@ -615,12 +810,11 @@ export class TrafficSurvivorEngine {
       this.spawnBoss('BOSS_BRAESS');
     }
 
-    // Regular swarm spawning
-    const maxActiveEnemies = 160;
+    const maxActiveEnemies = 165;
     if (this.state.enemies.length >= maxActiveEnemies) return;
 
     const baseRate =
-      (2.4 + Math.min(7.5, t * 0.042)) * stage.spawnRateMult;
+      (2.5 + Math.min(7.8, t * 0.044)) * stage.spawnRateMult;
     this.spawnAccumulator += baseRate * dt;
 
     while (
@@ -629,7 +823,7 @@ export class TrafficSurvivorEngine {
     ) {
       this.spawnAccumulator -= 1;
       const enemyType = this.pickEnemyTypeForTime(t);
-      const isElite = Math.random() < Math.min(0.16, 0.03 + t * 0.0007);
+      const isElite = Math.random() < Math.min(0.17, 0.03 + t * 0.0007);
       this.spawnEnemy(enemyType, isElite);
     }
   }
@@ -637,20 +831,24 @@ export class TrafficSurvivorEngine {
   private pickEnemyTypeForTime(t: number): EnemyType {
     const r = Math.random();
     if (t < 35) {
-      return r < 0.42 ? 'CUT_IN_TAXI' : 'RUSH_SEDAN';
+      if (r < 0.08) return 'HAZMAT_TANKER';
+      return r < 0.45 ? 'CUT_IN_TAXI' : 'RUSH_SEDAN';
     } else if (t < 75) {
-      if (r < 0.3) return 'CUT_IN_TAXI';
-      if (r < 0.7) return 'RUSH_SEDAN';
+      if (r < 0.12) return 'HAZMAT_TANKER';
+      if (r < 0.35) return 'CUT_IN_TAXI';
+      if (r < 0.72) return 'RUSH_SEDAN';
       return 'SPILLBACK_SUV';
     } else if (t < 125) {
-      if (r < 0.22) return 'CUT_IN_TAXI';
-      if (r < 0.48) return 'SPILLBACK_SUV';
-      if (r < 0.76) return 'DOUBLE_PARK_VAN';
+      if (r < 0.12) return 'HAZMAT_TANKER';
+      if (r < 0.28) return 'CUT_IN_TAXI';
+      if (r < 0.52) return 'SPILLBACK_SUV';
+      if (r < 0.78) return 'DOUBLE_PARK_VAN';
       return 'ROGUE_RACER';
     } else {
-      if (r < 0.2) return 'ROGUE_RACER';
-      if (r < 0.45) return 'SPILLBACK_SUV';
-      if (r < 0.72) return 'DOUBLE_PARK_VAN';
+      if (r < 0.12) return 'HAZMAT_TANKER';
+      if (r < 0.3) return 'ROGUE_RACER';
+      if (r < 0.52) return 'SPILLBACK_SUV';
+      if (r < 0.75) return 'DOUBLE_PARK_VAN';
       return 'OVERLOAD_TRUCK';
     }
   }
@@ -660,7 +858,6 @@ export class TrafficSurvivorEngine {
     const stage = SURVIVOR_STAGES[this.state.stageId];
     const p = this.state.player;
 
-    // Spawn around player outside immediate comfort zone (380..540m) or near outer nodes
     const angle = Math.random() * Math.PI * 2;
     const dist = 390 + Math.random() * 150;
     const sx = Math.max(
@@ -688,7 +885,7 @@ export class TrafficSurvivorEngine {
       hp,
       maxHp: hp,
       speed: arch.baseSpeed * (isElite ? 1.08 : 1.0),
-      radius: arch.radius * (isElite ? 1.22 : 1.0),
+      radius: arch.radius * (isElite ? 1.2 : 1.0),
       contactDamage: arch.contactDamage * (isElite ? 1.25 : 1.0),
       xpValue: Math.round(arch.xpValue * (isElite ? 2.5 : 1.0)),
       creditValue: Math.round(arch.creditValue * (isElite ? 3 : 1)),
@@ -748,6 +945,7 @@ export class TrafficSurvivorEngine {
     this.state.enemies.push(boss);
     this.state.activeBossAlert = `${arch.name} 출현! 처치 시 과태료 보물상자 드롭!`;
     this.state.activeBossAlertTimer = 5.0;
+    this.triggerScreenShake(9, 0.45);
     soundEngine.playBossAlert();
     return boss;
   }
@@ -768,12 +966,12 @@ export class TrafficSurvivorEngine {
           nodeName: candidate.name,
           x: candidate.x,
           y: candidate.y,
-          radius: 72,
+          radius: 74,
           progress: 0,
-          requiredSeconds: 2.2,
+          requiredSeconds: 2.1,
           timeRemaining: 28,
-          rewardXp: 70 + this.state.waveNumber * 25,
-          rewardCredits: 25 + this.state.waveNumber * 8,
+          rewardXp: 75 + this.state.waveNumber * 25,
+          rewardCredits: 28 + this.state.waveNumber * 8,
         };
         this.addFloatingText(
           candidate.x,
@@ -789,7 +987,6 @@ export class TrafficSurvivorEngine {
     const m = this.state.activeMission;
     m.timeRemaining -= dt;
     if (m.timeRemaining <= 0) {
-      // Mission expired -> increases gridlock
       this.state.gridlockGauge = Math.min(100, this.state.gridlockGauge + 12);
       this.addFloatingText(
         m.x,
@@ -807,7 +1004,6 @@ export class TrafficSurvivorEngine {
     if (dist <= m.radius) {
       m.progress = Math.min(1, m.progress + dt / m.requiredSeconds);
       if (m.progress >= 1) {
-        // Signal Optimization Completed!
         this.completeIntersectionMission(m);
       }
     } else {
@@ -820,6 +1016,7 @@ export class TrafficSurvivorEngine {
   ): void {
     const p = this.state.player;
     soundEngine.playSignalOptimized();
+    this.triggerScreenShake(7, 0.35);
 
     this.state.missionsCompleted += 1;
     this.state.gridlockGauge = Math.max(0, this.state.gridlockGauge - 28);
@@ -827,13 +1024,12 @@ export class TrafficSurvivorEngine {
     p.creditsEarned += m.rewardCredits;
     this.grantXp(m.rewardXp);
 
-    // Massive Green-Wave Shockwave at the intersection
     this.slashes.push({
       id: this.nextEntityId++,
       x: m.x,
       y: m.y,
       angle: 0,
-      arcRadius: 290,
+      arcRadius: 295,
       arcWidth: Math.PI * 2,
       color: '#10b981',
       evolved: true,
@@ -841,10 +1037,10 @@ export class TrafficSurvivorEngine {
       maxTimer: 0.45,
     });
 
-    const waveDmg = 95 * this.getDamageMultiplier();
+    const waveDmg = 100 * this.getDamageMultiplier();
     for (const enemy of this.state.enemies) {
       const d = Math.hypot(enemy.x - m.x, enemy.y - m.y);
-      if (d <= 290) {
+      if (d <= 295) {
         this.damageEnemy(
           enemy,
           waveDmg,
@@ -866,7 +1062,7 @@ export class TrafficSurvivorEngine {
     );
 
     this.state.activeMission = null;
-    this.missionCooldownTimer = 11.0;
+    this.missionCooldownTimer = 10.5;
   }
 
   // ==================== WEAPON EXECUTION ====================
@@ -877,13 +1073,11 @@ export class TrafficSurvivorEngine {
     const areaMult = this.getAreaMultiplier();
     const bonusCount = this.getBonusProjectileCount();
 
-    // Update orbital rotation angle continuously
-    this.state.orbitalAngle = (this.state.orbitalAngle + dt * 3.4) % (Math.PI * 2);
+    this.state.orbitalAngle = (this.state.orbitalAngle + dt * 3.5) % (Math.PI * 2);
     if (this.state.empPulseVisual > 0) {
       this.state.empPulseVisual = Math.max(0, this.state.empPulseVisual - dt * 2.2);
     }
 
-    // Decrement orbital per-enemy hit cooldowns
     for (const [eid, timer] of this.orbitalHitCooldowns.entries()) {
       if (timer - dt <= 0) {
         this.orbitalHitCooldowns.delete(eid);
@@ -895,7 +1089,6 @@ export class TrafficSurvivorEngine {
     for (const w of p.weapons) {
       const def = WEAPON_DEFS[w.id];
 
-      // Continuous Orbital Hit Detection
       if (w.id === 'ROUNDABOUT_ORBITAL') {
         this.processRoundaboutOrbitals(w, def, dmgMult, areaMult, bonusCount);
       }
@@ -937,8 +1130,13 @@ export class TrafficSurvivorEngine {
         case 'SIGNAL_TURRET':
           this.deploySignalTurret(w, damage, areaMult);
           break;
+        case 'CHAIN_SIGNAL_ARC':
+          this.fireChainSignalArc(w, damage, count, areaMult);
+          break;
+        case 'RAILGUN_BEAM':
+          this.fireRailgunBeam(w, damage, areaMult);
+          break;
         case 'ROUNDABOUT_ORBITAL':
-          // Orbitals are evaluated continuously above
           break;
       }
     }
@@ -958,8 +1156,9 @@ export class TrafficSurvivorEngine {
     );
 
     soundEngine.playShootPulse();
-    const pierce = (w.level >= 2 ? 2 : 1) + (w.level >= 5 ? 2 : 0) + (w.evolved ? 4 : 0);
-    const speed = w.evolved ? 540 : 430;
+    const pierce =
+      (w.level >= 2 ? 2 : 1) + (w.level >= 5 ? 2 : 0) + (w.evolved ? 4 : 0);
+    const speed = w.evolved ? 550 : 440;
 
     for (let i = 0; i < count; i++) {
       const target = sorted[i % sorted.length];
@@ -975,7 +1174,7 @@ export class TrafficSurvivorEngine {
         y: p.y,
         vx: Math.cos(ang) * speed,
         vy: Math.sin(ang) * speed,
-        radius: (w.evolved ? 9 : 6.5) * areaMult,
+        radius: (w.evolved ? 9.5 : 7) * areaMult,
         damage,
         pierce,
         hitEnemyIds: new Set(),
@@ -1002,7 +1201,7 @@ export class TrafficSurvivorEngine {
       (w.evolved ? 1.3 : 1.0);
 
     const directions = w.evolved
-      ? [0, Math.PI]
+      ? [0]
       : w.level >= 2
       ? [p.angle, p.angle + Math.PI]
       : [p.angle];
@@ -1044,8 +1243,6 @@ export class TrafficSurvivorEngine {
         e.knockbackVx += nx * kb;
         e.knockbackVy += ny * kb;
       }
-
-      if (w.evolved) break; // Evolved already hits 360 degrees
     }
 
     if (w.evolved && p.hp < p.maxHp) {
@@ -1061,11 +1258,14 @@ export class TrafficSurvivorEngine {
     bonusCount: number
   ): void {
     const p = this.state.player;
-    const count = def.baseCount + (w.level - 1) + bonusCount + (w.evolved ? 2 : 0);
+    const count =
+      def.baseCount + (w.level - 1) + bonusCount + (w.evolved ? 2 : 0);
     const orbitRadius = def.baseArea * (1 + (w.level - 1) * 0.08) * areaMult;
     const orbSize = (w.evolved ? 17 : 13) * areaMult;
     const damage =
-      def.baseDamage * (1 + (w.level - 1) * 0.3 + (w.evolved ? 0.6 : 0)) * dmgMult;
+      def.baseDamage *
+      (1 + (w.level - 1) * 0.3 + (w.evolved ? 0.6 : 0)) *
+      dmgMult;
 
     for (let i = 0; i < count; i++) {
       const ang = this.state.orbitalAngle + (i * Math.PI * 2) / count;
@@ -1078,8 +1278,9 @@ export class TrafficSurvivorEngine {
         if (dist <= orbSize + e.radius) {
           this.orbitalHitCooldowns.set(e.id, 0.28);
           this.damageEnemy(e, damage, w.id);
-          const nx = dist > 0.1 ? (e.x - p.x) / Math.max(1, Math.hypot(e.x - p.x, e.y - p.y)) : 1;
-          const ny = dist > 0.1 ? (e.y - p.y) / Math.max(1, Math.hypot(e.x - p.x, e.y - p.y)) : 0;
+          const dCenter = Math.max(1, Math.hypot(e.x - p.x, e.y - p.y));
+          const nx = (e.x - p.x) / dCenter;
+          const ny = (e.y - p.y) / dCenter;
           e.knockbackVx += nx * (e.isBoss ? 40 : 125);
           e.knockbackVy += ny * (e.isBoss ? 40 : 125);
         }
@@ -1122,7 +1323,6 @@ export class TrafficSurvivorEngine {
     if (this.state.enemies.length === 0) return;
     soundEngine.playLaserStrike();
 
-    // Prioritize highest HP enemies within 520m
     const p = this.state.player;
     const inRange = this.state.enemies.filter(
       (e) => Math.hypot(e.x - p.x, e.y - p.y) <= 520
@@ -1131,12 +1331,13 @@ export class TrafficSurvivorEngine {
     const sorted = [...pool].sort((a, b) => b.hp - a.hp);
 
     const splashRadius =
-      WEAPON_DEFS.SPEED_CAMERA_LASER.baseArea * areaMult * (w.evolved ? 1.35 : 1.0);
+      WEAPON_DEFS.SPEED_CAMERA_LASER.baseArea *
+      areaMult *
+      (w.evolved ? 1.35 : 1.0);
     const strikeCount = Math.min(sorted.length, Math.max(1, count - 1));
 
     for (let i = 0; i < strikeCount; i++) {
       const target = sorted[i];
-      // Vertical sky enforcement beam
       this.state.lasers.push({
         id: this.nextEntityId++,
         x1: target.x,
@@ -1171,8 +1372,7 @@ export class TrafficSurvivorEngine {
       WEAPON_DEFS.DETOUR_MISSILE.baseArea * areaMult * (w.evolved ? 1.3 : 1.0);
 
     for (let i = 0; i < count; i++) {
-      const target =
-        this.state.enemies[(i * 3) % this.state.enemies.length];
+      const target = this.state.enemies[(i * 3) % this.state.enemies.length];
       const ang =
         Math.atan2(target.y - p.y, target.x - p.x) +
         (Math.random() - 0.5) * 0.5;
@@ -1258,18 +1458,158 @@ export class TrafficSurvivorEngine {
     });
   }
 
+  /**
+   * NEW WEAPON: CHAIN_SIGNAL_ARC (신호등 연쇄 스파크)
+   */
+  private fireChainSignalArc(
+    w: ActiveWeaponInstance,
+    damage: number,
+    count: number,
+    areaMult: number
+  ): void {
+    if (this.state.enemies.length === 0) return;
+    const p = this.state.player;
+    const jumpRange =
+      WEAPON_DEFS.CHAIN_SIGNAL_ARC.baseArea *
+      areaMult *
+      (1 + (w.level - 1) * 0.08);
+    const maxJumps = count + (w.level >= 2 ? 1 : 0) + (w.evolved ? 3 : 0);
+
+    const visited = new Set<number>();
+    let currX = p.x;
+    let currY = p.y;
+
+    soundEngine.playShootPulse();
+
+    for (let j = 0; j < maxJumps; j++) {
+      let bestTarget: EnemyEntity | null = null;
+      let bestDist = j === 0 ? 320 : jumpRange;
+
+      for (const e of this.state.enemies) {
+        if (visited.has(e.id) || e.hp <= 0) continue;
+        const d = Math.hypot(e.x - currX, e.y - currY);
+        if (d <= bestDist) {
+          bestDist = d;
+          bestTarget = e;
+        }
+      }
+
+      if (!bestTarget) break;
+      visited.add(bestTarget.id);
+
+      this.state.lasers.push({
+        id: this.nextEntityId++,
+        x1: currX,
+        y1: currY,
+        x2: bestTarget.x,
+        y2: bestTarget.y,
+        color: w.evolved ? '#6ee7b7' : '#34d399',
+        width: w.evolved ? 4.2 : 3.0,
+        timer: 0.2,
+        maxTimer: 0.2,
+      });
+
+      currX = bestTarget.x;
+      currY = bestTarget.y;
+
+      if (w.level >= 5 || w.evolved) {
+        bestTarget.slowTimer = Math.max(bestTarget.slowTimer, 1.5);
+      }
+      this.damageEnemy(bestTarget, damage * Math.pow(0.92, j), w.id);
+    }
+  }
+
+  /**
+   * NEW WEAPON: RAILGUN_BEAM (초전도 차선 레일건)
+   */
+  private fireRailgunBeam(
+    w: ActiveWeaponInstance,
+    damage: number,
+    areaMult: number
+  ): void {
+    const p = this.state.player;
+    soundEngine.playLaserStrike();
+
+    let baseAngle = p.angle;
+    if (this.state.enemies.length > 0) {
+      let nearest = this.state.enemies[0];
+      let bestD = Infinity;
+      for (const e of this.state.enemies) {
+        const d = Math.hypot(e.x - p.x, e.y - p.y);
+        if (d < bestD) {
+          bestD = d;
+          nearest = e;
+        }
+      }
+      baseAngle = Math.atan2(nearest.y - p.y, nearest.x - p.x);
+    }
+
+    const beamLen =
+      WEAPON_DEFS.RAILGUN_BEAM.baseArea *
+      (1 + (w.level - 1) * 0.1) *
+      areaMult;
+    const beamHalfWidth = (w.evolved ? 24 : 15) * areaMult;
+
+    const angles = w.evolved
+      ? [
+          baseAngle,
+          baseAngle + Math.PI,
+          baseAngle + Math.PI / 2,
+          baseAngle - Math.PI / 2,
+        ]
+      : w.level >= 3
+      ? [baseAngle, baseAngle + Math.PI]
+      : [baseAngle];
+
+    if (w.level >= 5 || w.evolved) {
+      this.state.gridlockGauge = Math.max(0, this.state.gridlockGauge - 1.2);
+    }
+
+    for (const ang of angles) {
+      const ux = Math.cos(ang);
+      const uy = Math.sin(ang);
+      const endX = p.x + ux * beamLen;
+      const endY = p.y + uy * beamLen;
+
+      this.state.lasers.push({
+        id: this.nextEntityId++,
+        x1: p.x,
+        y1: p.y,
+        x2: endX,
+        y2: endY,
+        color: w.evolved ? '#fde047' : '#60a5fa',
+        width: w.evolved ? 8 : 5.5,
+        timer: 0.26,
+        maxTimer: 0.26,
+      });
+
+      for (const e of this.state.enemies) {
+        const vx = e.x - p.x;
+        const vy = e.y - p.y;
+        const proj = vx * ux + vy * uy;
+        if (proj < -e.radius || proj > beamLen + e.radius) continue;
+        const perp = Math.abs(vx * -uy + vy * ux);
+        if (perp <= beamHalfWidth + e.radius) {
+          this.damageEnemy(e, damage, w.id);
+        }
+      }
+    }
+  }
+
   // ==================== PROJECTILES, TURRETS & EFFECTS ====================
   private updateProjectilesAndEffects(dt: number): void {
     const p = this.state.player;
 
-    // 1. Update Turrets
     const nextTurrets: SignalTurretEntity[] = [];
     for (const t of this.state.turrets) {
       t.lifeTimer -= dt;
       if (t.lifeTimer <= 0) continue;
 
       if (t.evolved) {
-        this.state.gridlockGauge = Math.max(0, this.state.gridlockGauge - 0.35 * dt);
+        this.state.gridlockGauge = Math.max(
+          0,
+          this.state.gridlockGauge - 0.35 * dt
+        );
       }
 
       t.fireTimer -= dt;
@@ -1309,14 +1649,12 @@ export class TrafficSurvivorEngine {
     }
     this.state.turrets = nextTurrets;
 
-    // 2. Update Projectiles
     const nextProjectiles: ProjectileEntity[] = [];
     for (const proj of this.state.projectiles) {
       proj.lifeTimer -= dt;
       if (proj.lifeTimer <= 0) continue;
 
       if (proj.kind === 'MISSILE' && this.state.enemies.length > 0) {
-        // Homing steering toward nearest enemy
         let nearest = this.state.enemies[0];
         let bestD = Infinity;
         for (const e of this.state.enemies) {
@@ -1339,7 +1677,7 @@ export class TrafficSurvivorEngine {
       } else if (proj.kind === 'BOOMERANG') {
         if (!proj.returning && proj.lifeTimer < proj.maxLife * 0.52) {
           proj.returning = true;
-          proj.hitEnemyIds.clear(); // Can hit enemies a second time on return!
+          proj.hitEnemyIds.clear();
         }
         if (proj.returning) {
           const dx = p.x - proj.x;
@@ -1348,7 +1686,7 @@ export class TrafficSurvivorEngine {
           const speed = proj.evolved ? 460 : 380;
           proj.vx = (dx / d) * speed;
           proj.vy = (dy / d) * speed;
-          if (d < 22) continue; // Caught by player
+          if (d < 22) continue;
         }
       }
 
@@ -1356,7 +1694,6 @@ export class TrafficSurvivorEngine {
       proj.y += proj.vy * dt;
 
       if (proj.isEnemyProjectile) {
-        // Enemy hazard projectile vs player
         const distToPlayer = Math.hypot(proj.x - p.x, proj.y - p.y);
         if (distToPlayer <= proj.radius + 14) {
           this.damagePlayer(proj.damage);
@@ -1366,7 +1703,6 @@ export class TrafficSurvivorEngine {
         continue;
       }
 
-      // Check collisions against enemies
       let consumed = false;
       for (const e of this.state.enemies) {
         if (proj.hitEnemyIds.has(e.id)) continue;
@@ -1375,7 +1711,6 @@ export class TrafficSurvivorEngine {
           proj.hitEnemyIds.add(e.id);
 
           if (proj.kind === 'MISSILE' && proj.aoeRadius) {
-            // AoE Explosion
             this.slashes.push({
               id: this.nextEntityId++,
               x: proj.x,
@@ -1415,7 +1750,6 @@ export class TrafficSurvivorEngine {
     }
     this.state.projectiles = nextProjectiles;
 
-    // 3. Update Slashes, Lasers, Floating Texts, Particles
     this.state.slashes = this.state.slashes.filter((s) => {
       s.timer -= dt;
       return s.timer > 0;
@@ -1445,7 +1779,8 @@ export class TrafficSurvivorEngine {
     for (const e of this.state.enemies) {
       if (e.hp <= 0) continue;
 
-      if (e.hitFlashTimer > 0) e.hitFlashTimer = Math.max(0, e.hitFlashTimer - dt);
+      if (e.hitFlashTimer > 0)
+        e.hitFlashTimer = Math.max(0, e.hitFlashTimer - dt);
       if (e.slowTimer > 0) e.slowTimer = Math.max(0, e.slowTimer - dt);
 
       const dx = p.x - e.x;
@@ -1455,7 +1790,6 @@ export class TrafficSurvivorEngine {
 
       let speedMult = e.slowTimer > 0 ? 0.55 : 1.0;
 
-      // Special Rogue Racer / Boss behaviors
       if (e.type === 'ROGUE_RACER' && e.specialCooldown !== undefined) {
         e.specialCooldown -= dt;
         if (e.specialCooldown <= 0) {
@@ -1474,7 +1808,6 @@ export class TrafficSurvivorEngine {
         e.specialCooldown -= dt;
         if (e.specialCooldown <= 0) {
           e.specialCooldown = e.type === 'BOSS_BRAESS' ? 3.2 : 4.5;
-          // Boss fires radial red-light hazard bolts
           const boltCount = e.type === 'BOSS_BRAESS' ? 8 : 5;
           for (let b = 0; b < boltCount; b++) {
             const ang = e.angle + ((b - (boltCount - 1) / 2) * Math.PI) / 6;
@@ -1510,7 +1843,6 @@ export class TrafficSurvivorEngine {
       e.x += e.vx * dt;
       e.y += e.vy * dt;
 
-      // Soft separation between nearby enemies so they form a visible swarm
       for (const other of surviving) {
         const ox = e.x - other.x;
         const oy = e.y - other.y;
@@ -1523,7 +1855,6 @@ export class TrafficSurvivorEngine {
         }
       }
 
-      // Check contact damage with player
       const playerDist = Math.hypot(p.x - e.x, p.y - e.y);
       if (playerDist <= e.radius + 14) {
         this.damagePlayer(e.contactDamage);
@@ -1578,6 +1909,32 @@ export class TrafficSurvivorEngine {
       weaponInst.kills += 1;
     }
 
+    // Update Combo & Fever Gauge
+    this.state.comboCount += 1;
+    this.state.comboTimer = 3.4;
+    if (this.state.comboCount > this.state.maxCombo) {
+      this.state.maxCombo = this.state.comboCount;
+    }
+
+    if (this.state.feverActiveTimer <= 0) {
+      this.state.feverGauge = Math.min(
+        100,
+        this.state.feverGauge + (enemy.isBoss ? 35 : 2.5)
+      );
+      if (this.state.feverGauge >= 100) {
+        this.state.feverGauge = 0;
+        this.state.feverActiveTimer = 8.0;
+        soundEngine.playSignalOptimized();
+        this.addFloatingText(
+          p.x,
+          p.y - 38,
+          '🔥 GREEN-WAVE FEVER TIME! (8초간 초고속 연사·가속!)',
+          '#fde047',
+          15
+        );
+      }
+    }
+
     const creditGain = Math.max(
       1,
       Math.round(
@@ -1588,31 +1945,71 @@ export class TrafficSurvivorEngine {
     );
     p.creditsEarned += creditGain;
 
-    // Relieve city gridlock slightly per cleared congestion vehicle
     this.state.gridlockGauge = Math.max(
       0,
-      this.state.gridlockGauge - (enemy.isBoss ? 18 : 0.42)
+      this.state.gridlockGauge - (enemy.isBoss ? 18 : 0.45)
     );
 
-    // Spawn explosion particles
-    const pCount = enemy.isBoss ? 18 : 6;
-    for (let i = 0; i < pCount && this.state.particles.length < 140; i++) {
+    // HAZMAT_TANKER Chain Explosion!
+    if (enemy.type === 'HAZMAT_TANKER' && !this.handlingHazmatChain) {
+      this.handlingHazmatChain = true;
+      const blastRadius = 140;
+      const blastDmg = 95 * this.getDamageMultiplier();
+      this.triggerScreenShake(5, 0.22);
+
+      this.slashes.push({
+        id: this.nextEntityId++,
+        x: enemy.x,
+        y: enemy.y,
+        angle: 0,
+        arcRadius: blastRadius,
+        arcWidth: Math.PI * 2,
+        color: '#84cc16',
+        evolved: true,
+        timer: 0.35,
+        maxTimer: 0.35,
+      });
+
+      this.addFloatingText(
+        enemy.x,
+        enemy.y - 24,
+        '☢️ 탱크로리 유폭!',
+        '#bef264',
+        13
+      );
+
+      for (const other of this.state.enemies) {
+        if (other.id !== enemy.id && other.hp > 0) {
+          const d = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+          if (d <= blastRadius + other.radius) {
+            this.damageEnemy(
+              other,
+              blastDmg,
+              p.weapons[0]?.id || 'GREEN_WAVE_PULSE'
+            );
+          }
+        }
+      }
+      this.handlingHazmatChain = false;
+    }
+
+    const pCount = enemy.isBoss ? 22 : 7;
+    for (let i = 0; i < pCount && this.state.particles.length < 160; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const spd = 45 + Math.random() * 130;
+      const spd = 45 + Math.random() * 140;
       this.state.particles.push({
         id: this.nextEntityId++,
         x: enemy.x,
         y: enemy.y,
         vx: Math.cos(ang) * spd,
         vy: Math.sin(ang) * spd,
-        radius: enemy.isBoss ? 4.5 : 2.8,
+        radius: enemy.isBoss ? 4.8 : 3.0,
         color: enemy.color,
-        timer: 0.38,
-        maxTimer: 0.38,
+        timer: 0.4,
+        maxTimer: 0.4,
       });
     }
 
-    // Spawn XP Gem
     const tier: XpGemEntity['tier'] =
       enemy.xpValue >= 50
         ? 'ROSE'
@@ -1631,8 +2028,8 @@ export class TrafficSurvivorEngine {
       magnetized: false,
     });
 
-    // Boss drops Enforcement Treasure Chest!
     if (enemy.isBoss) {
+      this.triggerScreenShake(10, 0.5);
       this.state.pickups.push({
         id: this.nextEntityId++,
         kind: 'BOSS_CHEST',
@@ -1668,6 +2065,7 @@ export class TrafficSurvivorEngine {
     const mitigated = Math.max(2, Math.round(rawDamage - cls.armor));
     p.hp = Math.max(0, p.hp - mitigated);
     p.invulnerableTimer = 0.45;
+    this.triggerScreenShake(5, 0.18);
 
     this.addFloatingText(p.x, p.y - 22, `-${mitigated} HP`, '#f43f5e', 13);
 
@@ -1692,7 +2090,7 @@ export class TrafficSurvivorEngine {
       }
 
       if (g.magnetized) {
-        const pullSpeed = 460;
+        const pullSpeed = 480;
         if (dist <= 18) {
           soundEngine.playGemPickup();
           this.grantXp(Math.round(g.value * this.getXpMultiplier()));
@@ -1725,7 +2123,13 @@ export class TrafficSurvivorEngine {
       const heal = 40;
       p.hp = Math.min(p.maxHp, p.hp + heal);
       soundEngine.playSignalOptimized();
-      this.addFloatingText(p.x, p.y - 24, `🔧 긴급 수리 +${heal} HP`, '#10b981', 13);
+      this.addFloatingText(
+        p.x,
+        p.y - 24,
+        `🔧 긴급 수리 +${heal} HP`,
+        '#10b981',
+        13
+      );
     } else if (pk.kind === 'GREEN_WAVE_MAGNET') {
       for (const g of this.state.gems) {
         g.magnetized = true;
@@ -1763,7 +2167,6 @@ export class TrafficSurvivorEngine {
     const p = this.state.player;
     const pool: UpgradeChoice[] = [];
 
-    // 1. Check for Weapon Evolutions (Weapon Lv === 5, not yet evolved, and matching synergy passive Lv >= 1)
     for (const w of p.weapons) {
       const def = WEAPON_DEFS[w.id];
       const hasSynergy = (p.passives[def.synergyPassive] ?? 0) >= 1;
@@ -1772,7 +2175,7 @@ export class TrafficSurvivorEngine {
           key: `EVOLVE_${w.id}`,
           kind: 'WEAPON_EVOLVE',
           weaponId: w.id,
-          title: def.evolvedName,
+          title: `${def.iconCode} ${def.evolvedName}`,
           subtitle: `궁극 진화 (${def.name} + ${PASSIVE_DEFS[def.synergyPassive].name})`,
           description: def.evolvedDescription,
           currentLevel: w.level,
@@ -1783,7 +2186,6 @@ export class TrafficSurvivorEngine {
       }
     }
 
-    // 2. Existing Weapon Upgrades (Lv < 5)
     for (const w of p.weapons) {
       const def = WEAPON_DEFS[w.id];
       if (w.level < def.maxLevel) {
@@ -1793,7 +2195,7 @@ export class TrafficSurvivorEngine {
           key: `W_UP_${w.id}`,
           kind: 'WEAPON_UPGRADE',
           weaponId: w.id,
-          title: def.name,
+          title: `${def.iconCode} ${def.name}`,
           subtitle: `무기 강화 Lv.${w.level} → Lv.${nextLv}`,
           description:
             def.levelDescriptions[nextLv - 1] || '공격력 및 연사 성능 강화',
@@ -1805,7 +2207,6 @@ export class TrafficSurvivorEngine {
       }
     }
 
-    // 3. New Weapons (if slots < 6)
     if (p.weapons.length < 6) {
       const ownedIds = new Set(p.weapons.map((w) => w.id));
       for (const def of Object.values(WEAPON_DEFS)) {
@@ -1815,7 +2216,7 @@ export class TrafficSurvivorEngine {
             key: `W_NEW_${def.id}`,
             kind: 'WEAPON_NEW',
             weaponId: def.id,
-            title: def.name,
+            title: `${def.iconCode} ${def.name}`,
             subtitle: '신규 교통 통제 무기 장착',
             description: def.description,
             currentLevel: 0,
@@ -1827,7 +2228,6 @@ export class TrafficSurvivorEngine {
       }
     }
 
-    // 4. Passive Upgrades & New Passives
     const ownedPassiveCount = Object.keys(p.passives).length;
     for (const pDef of Object.values(PASSIVE_DEFS)) {
       const curLv = p.passives[pDef.id] ?? 0;
@@ -1836,7 +2236,7 @@ export class TrafficSurvivorEngine {
           key: `P_UP_${pDef.id}`,
           kind: 'PASSIVE_UPGRADE',
           passiveId: pDef.id,
-          title: pDef.name,
+          title: `${pDef.iconCode} ${pDef.name}`,
           subtitle: `보조 모듈 Lv.${curLv} → Lv.${curLv + 1} (${pDef.statPerLevelLabel})`,
           description: pDef.description,
           currentLevel: curLv,
@@ -1849,7 +2249,7 @@ export class TrafficSurvivorEngine {
           key: `P_NEW_${pDef.id}`,
           kind: 'PASSIVE_NEW',
           passiveId: pDef.id,
-          title: pDef.name,
+          title: `${pDef.iconCode} ${pDef.name}`,
           subtitle: `신규 보조 모듈 (${pDef.statPerLevelLabel})`,
           description: pDef.description,
           currentLevel: 0,
@@ -1860,7 +2260,6 @@ export class TrafficSurvivorEngine {
       }
     }
 
-    // Prioritize Evolutions at the front, shuffle the rest
     const evolutions = pool.filter((c) => c.isEvolution);
     const others = pool
       .filter((c) => !c.isEvolution)
@@ -1872,7 +2271,7 @@ export class TrafficSurvivorEngine {
       chosen.push({
         key: `REPAIR_${chosen.length}`,
         kind: 'EMERGENCY_REPAIR',
-        title: '긴급 정비 & 과태료 보너스',
+        title: '🔧 긴급 정비 & 과태료 보너스',
         subtitle: '즉시 효과',
         description: '차량 내구도를 45 회복하고 통행 크레딧 +35G를 획득합니다.',
         currentLevel: 0,
@@ -1899,7 +2298,10 @@ export class TrafficSurvivorEngine {
     } else if (choice.kind === 'WEAPON_UPGRADE' && choice.weaponId) {
       const target = p.weapons.find((w) => w.id === choice.weaponId);
       if (target) {
-        target.level = Math.min(WEAPON_DEFS[target.id].maxLevel, target.level + 1);
+        target.level = Math.min(
+          WEAPON_DEFS[target.id].maxLevel,
+          target.level + 1
+        );
       }
     } else if (choice.kind === 'WEAPON_EVOLVE' && choice.weaponId) {
       const target = p.weapons.find((w) => w.id === choice.weaponId);
@@ -1944,7 +2346,6 @@ export class TrafficSurvivorEngine {
     soundEngine.playSignalOptimized();
     const rewards = this.generateUpgradeChoices(2);
     for (const r of rewards) {
-      // Apply rewards immediately and show them in the Chest Modal
       this.applyUpgradeChoice(r);
     }
     this.state.player.creditsEarned += 60;
@@ -1963,7 +2364,6 @@ export class TrafficSurvivorEngine {
 
   // ==================== CITY GRIDLOCK GAUGE ====================
   private updateGridlockSystem(dt: number): void {
-    // Living enemies generate city congestion pressure
     const enemyPressure = this.state.enemies.length * 0.085;
     const naturalDecay = 1.65;
     const delta = (enemyPressure - naturalDecay) * dt;
@@ -1976,12 +2376,8 @@ export class TrafficSurvivorEngine {
     this.state.smoothFlowBuffActive = this.state.gridlockGauge <= 35;
     this.state.gridlockOverloadActive = this.state.gridlockGauge >= 95;
 
-    // If city reaches 95%+ gridlock overload, player's system overheats slowly
     if (this.state.gridlockOverloadActive) {
-      this.state.player.hp = Math.max(
-        0,
-        this.state.player.hp - 3.5 * dt
-      );
+      this.state.player.hp = Math.max(0, this.state.player.hp - 3.5 * dt);
       if (this.state.player.hp <= 0) {
         this.state.status = 'GAME_OVER';
       }
