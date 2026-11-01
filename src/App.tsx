@@ -26,6 +26,7 @@ import { RightPanel, RightPanelTab } from './components/RightPanel';
 import { CityCanvas, EditorToolMode } from './components/CityCanvas';
 import { MetricsChart } from './components/MetricsChart';
 import { JsonImportModal } from './components/JsonImportModal';
+import { SurvivorView } from './components/SurvivorView';
 import {
   WorkerRequestMessage,
   WorkerResponseMessage,
@@ -35,6 +36,9 @@ import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 const LOCAL_STORAGE_KEY = 'neon_flow_saved_city_v1';
 
 export const App: React.FC = () => {
+  // Primary mode: 'SURVIVOR' (Traffic Congestion Vampire Survivors Game) or 'LAB' (Traffic Simulation Sandbox)
+  const [appMode, setAppMode] = useState<'SURVIVOR' | 'LAB'>('SURVIVOR');
+
   // Initial network & synchronous initial snapshot so frame 0 has real vehicles immediately
   const [network, setNetwork] = useState<CityNetworkData>(() =>
     createCommuteRushScenario()
@@ -222,7 +226,7 @@ export const App: React.FC = () => {
 
   // Fixed-timestep simulation loop decoupled from rendering framerate
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || appMode !== 'LAB') return;
 
     // Base dt is 0.2s (200ms at 1x speed).
     // At 0.5x: 1 step every 400ms
@@ -255,7 +259,7 @@ export const App: React.FC = () => {
     }, intervalMs);
 
     return () => window.clearInterval(timer);
-  }, [isPlaying, speedMultiplier]);
+  }, [isPlaying, speedMultiplier, appMode]);
 
   const handleStepOnce = () => {
     if (workerRef.current) {
@@ -734,6 +738,10 @@ export const App: React.FC = () => {
     }
   };
 
+  if (appMode === 'SURVIVOR') {
+    return <SurvivorView onSwitchToLabMode={() => setAppMode('LAB')} />;
+  }
+
   return (
     <div className="app-shell">
       <TopBar
@@ -752,6 +760,7 @@ export const App: React.FC = () => {
         onChangeRoutingMode={handleChangeRoutingMode}
         onQuickStartOptimize={handleStartOptimization}
         isOptimizing={isOptimizing}
+        onSwitchToSurvivorMode={() => setAppMode('SURVIVOR')}
       />
 
       {banner && (

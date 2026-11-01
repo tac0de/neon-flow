@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Cpu,
   StepForward,
+  Gamepad2,
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -30,6 +31,7 @@ interface TopBarProps {
   onChangeRoutingMode: (mode: RoutingMode) => void;
   onQuickStartOptimize: () => void;
   isOptimizing: boolean;
+  onSwitchToSurvivorMode?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -48,6 +50,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onChangeRoutingMode,
   onQuickStartOptimize,
   isOptimizing,
+  onSwitchToSurvivorMode,
 }) => {
   const speeds = [0.5, 1, 2, 4];
 
@@ -166,15 +169,28 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          className="top-optimize-cta"
-          onClick={onQuickStartOptimize}
-          disabled={isOptimizing}
-        >
-          <Sparkles size={15} />
-          <span>{isOptimizing ? '최적화 탐색 중...' : '신호 최적화'}</span>
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            className="top-optimize-cta"
+            onClick={onQuickStartOptimize}
+            disabled={isOptimizing}
+          >
+            <Sparkles size={15} />
+            <span>{isOptimizing ? '최적화 탐색 중...' : '신호 최적화'}</span>
+          </button>
+
+          {onSwitchToSurvivorMode && (
+            <button
+              type="button"
+              className="top-survivor-switch-btn"
+              onClick={onSwitchToSurvivorMode}
+            >
+              <Gamepad2 size={15} />
+              <span>뱀서류 게임 모드</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Row 2: Live KPI Strip & Conservation Verification */}
