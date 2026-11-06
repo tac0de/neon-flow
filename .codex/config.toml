@@ -1,5 +1,4 @@
-[mcp_servers.tracework_dtp]
+[mcp_servers.neon_flow_dtp]
 command = "/bin/sh"
-args = ["-c", 'exec "$HOME/.codex/bin/tracework-dtp" neon-flow']
-env_vars = ["CODEX_THREAD_ID", "CODEX_SESSION_ID"]
+args = ["-c", 'exec "$HOME/.codex/bin/node" .codex/dtp/server.mjs']
 tool_timeout_sec = 180
