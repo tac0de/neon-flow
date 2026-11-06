@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "id": "traffic-simulation",
+      "version": "1.0.0",
+      "title": "교통 시뮬레이션",
+      "appliesTo": {
+        "paths": ["src/engine/", "src/worker/", "src/types/simulation.ts", "src/data/scenarios.ts"],
+        "terms": ["교통 시뮬레이션", "traffic simulation", "TrafficSimulator", "SeededRandom", "prng", "simWorker", "signal optimization"]
+      },
+      "instructions": [
+        "같은 시드와 입력에서 시뮬레이션 결과가 재현되도록 기존 SeededRandom과 시간 스텝을 사용합니다.",
+        "시뮬레이션과 워커의 메시지 계약이 달라지는 경우 요청·응답 타입과 소비 코드를 함께 확인합니다.",
+        "신호, 경로 탐색, 수치 동작의 변경은 관련 simulation.test.ts 사례와 대조합니다."
+      ],
+      "contract": {
+        "inputs": ["대상 시나리오 또는 시드", "기대하는 시뮬레이션 동작"],
+        "outputs": ["재현 가능한 변경", "관련 시뮬레이션 테스트 결과"]
+      }
+    },
+    {
+      "id": "canvas-rendering",
+      "version": "1.0.0",
+      "title": "지도 Canvas와 편집 UI",
+      "appliesTo": {
+        "paths": ["src/components/CityCanvas.tsx", "src/components/LeftPanel.tsx", "src/components/RightPanel.tsx", "src/components/TopBar.tsx", "src/components/JsonImportModal.tsx", "src/components/MetricsChart.tsx", "src/App.tsx", "src/styles/"],
+        "terms": ["Canvas 렌더링", "CityCanvas", "지도 편집", "map rendering"]
+      },
+      "instructions": [
+        "CityCanvas의 화면 좌표와 지도 좌표 변환을 재사용하고, 포인터 입력과 그리기가 동일한 변환을 사용하는지 확인합니다.",
+        "Canvas 크기나 선명도를 변경할 때 CSS 크기와 devicePixelRatio 기반 버퍼 크기를 구분합니다.",
+        "시각 또는 입력 동작을 바꾸면 해당 상태에서 실제 렌더링이나 입력을 확인하고 결과를 보고합니다."
+      ],
+      "contract": {
+        "inputs": ["변경할 화면과 상호작용", "재현할 화면 상태"],
+        "outputs": ["지도 렌더링 또는 입력 동작 변경", "확인한 시각·입력 결과"]
+      }
+    },
+    {
+      "id": "survivor-balance",
+      "version": "1.0.0",
+      "title": "Gridlock Survivors 게임 밸런스",
+      "appliesTo": {
+        "paths": ["src/survivor/", "src/types/survivor.ts", "src/components/SurvivorView.tsx"],
+        "terms": ["게임 밸런스", "Gridlock Survivors", "TrafficSurvivorEngine", "survivor balance", "WEAPON_DEFS"]
+      },
+      "instructions": [
+        "무기, 클래스, 적, 스테이지의 수치 조정은 survivorData의 기존 정의에서 시작합니다.",
+        "전투 규칙을 바꿀 때는 survivorEngine과 survivor.test.ts를 함께 확인합니다.",
+        "저장된 메타 업그레이드와 ID를 읽는 코드가 있으므로 ID나 저장 구조를 바꾸면 기존 저장 데이터의 로드를 확인합니다."
+      ],
+      "contract": {
+        "inputs": ["변경할 스테이지, 무기, 클래스 또는 적", "목표 동작 또는 밸런스"],
+        "outputs": ["정의 또는 전투 규칙 변경", "관련 게임 엔진 테스트 결과"]
+      }
+    }
+  ]
+}

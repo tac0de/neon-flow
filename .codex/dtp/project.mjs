@@ -4,6 +4,7 @@ import { lstatSync, realpathSync } from 'node:fs';
 import { availableParallelism, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadDomainSkills, resolveDomainSkills } from './domain-skills.mjs';
 
 const core = pathToFileURL(join(homedir(), '.codex/tools/tracework-dtp/core') + '/');
 const [
@@ -162,16 +163,18 @@ export function beginProjectWork({ id, state, threadId, checkout }) {
   return beginAgentWork(state, { project: id, threadId });
 }
 
-export function prepareProjectWork({ id, state, threadId, checkout, binding, query }) {
+export function prepareProjectWork({ id, state, threadId, checkout, binding = openProject(id, checkout), query, paths }) {
   requireThread(threadId);
   const startedAt = new Date().toISOString();
   const context = getProjectContext(id, { checkout, binding, state, query });
   const { worktree, revision: baseRevision, completion, ...details } = context;
+  const domainSkills = resolveDomainSkills(loadDomainSkills(binding.git, baseRevision), { paths, query });
+  const metadata = { domainSkills: domainSkills.map(({ id, version }) => ({ id, version })), registryRevision: baseRevision };
   const owner = { project: id, threadId, worktree };
-  const { workId } = beginAgentWork(state, { ...owner, baseRevision, startedAt });
+  const { workId } = beginAgentWork(state, { ...owner, baseRevision, startedAt, metadata });
   recordAgentPhase(state, { ...owner, workId, phase: 'context.ready', durationMs: context.timing.totalMs });
   return {
-    ...details, contractVersion: 1, workId, startedAt, worktree, baseRevision,
+    ...details, contractVersion: 1, workId, startedAt, worktree, baseRevision, domainSkills,
     completion: { requiresCleanWorktree: true, requiredChecks: details.checks.map(check => check.id) },
   };
 }

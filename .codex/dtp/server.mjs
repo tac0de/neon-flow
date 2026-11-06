@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { loadDomainSkills, resolveDomainSkills } from './domain-skills.mjs';
 import {
   beginProjectWork, CheckRejected, fullCheckResponse, getProjectBinding,
   getProjectContext, prepareProjectWork, runFeedback, runProject,
@@ -25,7 +26,8 @@ const { worktree } = binding;
 const { state, artifacts } = projectPaths(project);
 const uuid = z.string().uuid();
 const queryText = z.string().max(300).optional();
-const server = new McpServer({ name: 'neon-flow-dtp', version: '0.2.0' });
+const targetPaths = z.array(z.string().min(1).max(300)).max(50).optional();
+const server = new McpServer({ name: 'neon-flow', version: '0.3.0' });
 let running = false;
 let panelUrl;
 
@@ -50,12 +52,35 @@ function openPanel() {
   return panelUrl;
 }
 
+function readSkillRegistry() {
+  const registryRevision = binding.git(['rev-parse', 'HEAD']).trim();
+  return { registryRevision, skills: loadDomainSkills(binding.git, registryRevision) };
+}
+
+server.registerTool('list_domain_skills', {
+  description: 'List neon-flow domain skill IDs, versions, and applicability rules at the checked-out revision.',
+  inputSchema: z.strictObject({}),
+  annotations: { readOnlyHint: true, openWorldHint: false },
+}, () => {
+  const { registryRevision, skills } = readSkillRegistry();
+  return reply({ registryRevision, skills: skills.map(({ id, version, title, appliesTo }) => ({ id, version, title, appliesTo })) });
+});
+
+server.registerTool('resolve_domain_skills', {
+  description: 'Preview neon-flow domain skill instructions and I/O contracts for target repository-relative paths, or query terms if the paths are unknown.',
+  inputSchema: z.strictObject({ paths: targetPaths, query: queryText }),
+  annotations: { readOnlyHint: true, openWorldHint: false },
+}, selection => {
+  const { registryRevision, skills } = readSkillRegistry();
+  return reply({ registryRevision, domainSkills: resolveDomainSkills(skills, selection) });
+});
+
 server.registerTool('prepare_work', {
-  description: 'Start a DTP v1 task before edits. Read CODEX_THREAD_ID from the current Codex command shell and pass it as threadId.',
-  inputSchema: z.strictObject({ contractVersion: z.literal(1), query: queryText, threadId: uuid }),
+  description: 'Start DTP before edits and return applicable domain skills, versions, and contracts. Pass target repository-relative paths when known, a query otherwise, and CODEX_THREAD_ID from the current Codex command shell as threadId.',
+  inputSchema: z.strictObject({ contractVersion: z.literal(1), query: queryText, paths: targetPaths, threadId: uuid }),
   annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
-}, ({ query, threadId }) => {
-  return reply(prepareProjectWork({ id: project, state, binding, query, threadId }));
+}, ({ query, paths, threadId }) => {
+  return reply(prepareProjectWork({ id: project, state, binding, query, paths, threadId }));
 });
 
 server.registerTool('get_project_context', {
